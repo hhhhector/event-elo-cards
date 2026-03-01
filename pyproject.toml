@@ -1,0 +1,13 @@
+[project]
+name = "event-elo-cards"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "aiohttp>=3.13.3",
+    "asyncpg>=0.31.0",
+    "discord-py>=2.6.4",
+    "pillow>=12.1.1",
+    "python-dotenv>=1.2.1",
+]
