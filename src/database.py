@@ -7,7 +7,8 @@ class Database:
 
     @classmethod
     async def create(cls, dsn: str):
-        pool = await asyncpg.create_pool(dsn)
+        # Disable statement cache because Supabase transaction pooler (pgbouncer) doesn't support prepared statements
+        pool = await asyncpg.create_pool(dsn, statement_cache_size=0)
         return cls(pool)
 
     async def close(self):
@@ -26,7 +27,14 @@ class Database:
 
     async def get_random_unbanned_players(self, limit: int = 4) -> List[asyncpg.Record]:
         query = """
-        SELECT uuid, current_name, current_rating, current_rd, current_drating, is_banned
+        SELECT 
+            uuid, 
+            current_name, 
+            current_drating, 
+            current_rank, 
+            peak_drating AS peak_rating, 
+            peak_rank,
+            is_banned
         FROM event_elo.players
         WHERE is_banned = FALSE
         ORDER BY random()
@@ -37,24 +45,22 @@ class Database:
 
     # --- discord_tcg (Read/Write) ---
 
-    async def ensure_user(self, discord_id: int):
+    async def register_user(self, discord_id: int, starting_balance: int) -> bool:
         query = """
         INSERT INTO discord_tcg.users (discord_id, coins, last_active)
-        VALUES ($1, 0, CURRENT_TIMESTAMP)
-        ON CONFLICT (discord_id) DO UPDATE SET last_active = CURRENT_TIMESTAMP
+        VALUES ($1, $2, CURRENT_TIMESTAMP)
+        ON CONFLICT (discord_id) DO NOTHING
         """
         async with self.pool.acquire() as conn:
-            await conn.execute(query, str(discord_id))
+            status = await conn.execute(query, str(discord_id), starting_balance)
+            return status == "INSERT 0 1"
 
-    async def get_user_coins(self, discord_id: int) -> int:
-        await self.ensure_user(discord_id)
+    async def get_user_coins(self, discord_id: int) -> Optional[int]:
         query = "SELECT coins FROM discord_tcg.users WHERE discord_id = $1"
         async with self.pool.acquire() as conn:
-            val = await conn.fetchval(query, str(discord_id))
-            return val if val is not None else 0
+            return await conn.fetchval(query, str(discord_id))
 
-    async def update_user_coins(self, discord_id: int, delta: int) -> int:
-        await self.ensure_user(discord_id)
+    async def update_user_coins(self, discord_id: int, delta: int) -> Optional[int]:
         query = """
         UPDATE discord_tcg.users
         SET coins = coins + $2, last_active = CURRENT_TIMESTAMP
@@ -84,7 +90,43 @@ class Database:
         async with self.pool.acquire() as conn:
             return await conn.fetchval(query, str(owner_id), player_uuid)
 
-    async def remove_card(self, card_id: int, owner_id: int) -> bool:
+    async def get_random_player_in_rank_range(self, min_rank: int, max_rank: Optional[int] = None) -> Optional[asyncpg.Record]:
+        query = f"""
+        SELECT 
+            uuid, 
+            current_name, 
+            current_drating, 
+            current_rank, 
+            peak_drating AS peak_rating, 
+            peak_rank
+        FROM event_elo.players
+        WHERE is_banned = FALSE
+        AND current_rank >= $1
+        {"AND current_rank <= $2" if max_rank else ""}
+        ORDER BY random()
+        LIMIT 1
+        """
+        async with self.pool.acquire() as conn:
+            if max_rank:
+                return await conn.fetchrow(query, min_rank, max_rank)
+            return await conn.fetchrow(query, min_rank)
+
+    async def get_player_extended_stats(self, player_uuid: str) -> Optional[asyncpg.Record]:
+        query = """
+        SELECT 
+            uuid,
+            current_name,
+            current_drating,
+            current_rank,
+            peak_drating AS peak_rating,
+            peak_rank
+        FROM event_elo.players
+        WHERE uuid = $1
+        """
+        async with self.pool.acquire() as conn:
+            return await conn.fetchrow(query, player_uuid)
+
+    async def remove_card(self, card_id: str, owner_id: int) -> bool:
         query = """
         DELETE FROM discord_tcg.cards
         WHERE id = $1 AND owner_id = $2
@@ -93,11 +135,13 @@ class Database:
             status = await conn.execute(query, card_id, str(owner_id))
             return status == "DELETE 1"
 
-    async def process_faucet_dividends(self, roi_divisor: int = 4):
-        # Calculate dividend for each user based on sum(drating) / roi_divisor
+    async def process_faucet_dividends(self):
+        # Calculate dividend: SUM(10000 * (rating / 2200)^4) / 7
         query = """
         WITH UserDividends AS (
-            SELECT c.owner_id, SUM(p.current_drating) / $1 AS dividend
+            SELECT 
+                c.owner_id, 
+                SUM(10000.0 * POWER(p.current_drating / 2200.0, 4)) / 7.0 AS dividend
             FROM discord_tcg.cards c
             JOIN event_elo.players p ON c.player_uuid = p.uuid
             WHERE p.is_banned = FALSE
@@ -109,4 +153,4 @@ class Database:
         WHERE u.discord_id = ud.owner_id;
         """
         async with self.pool.acquire() as conn:
-            await conn.execute(query, roi_divisor)
+            await conn.execute(query)

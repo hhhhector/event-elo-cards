@@ -12,16 +12,21 @@ class Inventory(commands.Cog):
         if getattr(self.bot, 'db', None) is None:
             return await interaction.response.send_message("Database not connected.", ephemeral=True)
 
+        coins = await self.bot.db.get_user_coins(interaction.user.id)
+        if coins is None:
+            return await interaction.response.send_message("You must run /register first.", ephemeral=True)
+
         cards = await self.bot.db.get_user_cards(interaction.user.id)
         if not cards:
-            return await interaction.response.send_message("❌ You have no cards!", ephemeral=True)
+            return await interaction.response.send_message("You have no cards.", ephemeral=True)
 
         description = ""
         for c in cards:
-            description += f"`[{c['card_id']}]` **{c['current_name']}** (Rating: {c['current_drating']})\\n"
+            rating = int(float(c['current_drating']))
+            description += f"`[{c['card_id']}]` **{c['current_name']}** (Rating: {rating})\n"
 
         embed = discord.Embed(
-            title=f"🎒 {interaction.user.name}'s Inventory",
+            title=f"{interaction.user.name}'s Inventory",
             description=description,
             color=discord.Color.blue()
         )
@@ -31,29 +36,33 @@ class Inventory(commands.Cog):
 
     @app_commands.command(name="view", description="View a specific card's image and details")
     @app_commands.describe(card_id="The ID of the card you want to see")
-    async def view_card(self, interaction: discord.Interaction, card_id: int):
+    async def view_card(self, interaction: discord.Interaction, card_id: str):
         if getattr(self.bot, 'db', None) is None:
             return await interaction.response.send_message("Database not connected.", ephemeral=True)
+
+        coins = await self.bot.db.get_user_coins(interaction.user.id)
+        if coins is None:
+            return await interaction.response.send_message("You must run /register first.", ephemeral=True)
 
         await interaction.response.defer()
         
         cards = await self.bot.db.get_user_cards(interaction.user.id)
-        target_card = next((c for c in cards if c['card_id'] == card_id), None)
+        target_card = next((c for c in cards if str(c['card_id']) == card_id), None)
         
         if not target_card:
-            return await interaction.followup.send(f"❌ You don't own a card with ID `{card_id}`!", ephemeral=True)
+            return await interaction.followup.send(f"You don't own a card with ID `{card_id}`.", ephemeral=True)
 
-        image_buffer = await generate_card_image(
-            player_name=target_card['current_name'],
-            drating=target_card['current_drating'],
-            uuid=target_card['player_uuid']
-        )
+        # Fetch detailed stats (Rank, Peak, etc.)
+        extended_stats = await self.bot.db.get_player_extended_stats(target_card['player_uuid'])
+        
+        image_buffer = await generate_card_image(dict(extended_stats) if extended_stats else dict(target_card))
         
         file = discord.File(fp=image_buffer, filename="card.png")
         
+        rating = int(float(target_card['current_drating']))
         embed = discord.Embed(
-            title=f"🎴 {target_card['current_name']}",
-            description=f"**Rating:** {target_card['current_drating']}\\n**Card ID:** {target_card['card_id']}",
+            title=f"{target_card['current_name']}",
+            description=f"**Rating:** {rating}\n**Card ID:** {target_card['card_id']}",
             color=discord.Color.gold()
         )
         embed.set_image(url="attachment://card.png")

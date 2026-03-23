@@ -1,55 +1,90 @@
 import io
+import urllib.parse
+from typing import Any, Dict
+
 import aiohttp
-from PIL import Image, ImageDraw, ImageFont
 
-async def generate_card_image(player_name: str, drating: int, uuid: str = None) -> io.BytesIO:
+from src.utils.economy_utils import calculate_bank_value, calculate_yield_value, get_rarity
+
+API_BASE_URL = "https://event-elo-satori.vercel.app/api/generate-card"
+
+
+async def generate_card_image(stats: Dict[str, Any]) -> io.BytesIO:
     """
-    Generates a card image dynamically. Uses a black canvas with a gold border,
-    fetches the Minecraft avatar, and overlays text.
+    Fetches the card image from the Vercel Satori API.
     """
-    base_img = Image.new("RGBA", (300, 450), (40, 40, 40, 255))
-    draw = ImageDraw.Draw(base_img)
+    raw_rating = stats.get("current_drating")
+    if raw_rating is None:
+        raise ValueError("Missing 'current_drating' in player statistics.")
     
-    # Gold border
-    draw.rectangle([(10, 10), (290, 440)], outline=(218, 165, 32, 255), width=5)
+    float_rating = float(raw_rating)
+    rating = int(float_rating)
+    rank = stats.get("current_rank", "N/A")
+    peak_rating = stats.get("peak_rating", "N/A")
+    peak_rank = stats.get("peak_rank", "N/A")
 
-    # Fetch Avatar from Minotar
-    avatar_url = f"https://minotar.net/armor/bust/{player_name}/200.png"
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(avatar_url) as resp:
-                if resp.status == 200:
-                    avatar_bytes = await resp.read()
-                    avatar_img = Image.open(io.BytesIO(avatar_bytes)).convert("RGBA")
-                    # Paste avatar in center
-                    base_img.paste(avatar_img, (50, 50), avatar_img)
-    except Exception as e:
-        print(f"Failed to fetch avatar for {player_name}: {e}")
-        # Placeholder square if fetch fails
-        draw.rectangle([(50, 50), (250, 250)], fill=(100, 100, 100, 255))
+    if peak_rating != "N/A":
+        peak_rating = int(float(peak_rating))
+    if rank != "N/A":
+        rank = int(rank)
+    if peak_rank != "N/A":
+        peak_rank = int(peak_rank)
 
-    # Add Text (Name & Rating)
-    try:
-        # Standard system fonts might not be available, fallback to default if so
-        font_large = ImageFont.truetype("arial.ttf", 36)
-        font_small = ImageFont.truetype("arial.ttf", 24)
-    except IOError:
-        font_large = ImageFont.load_default()
-        font_small = ImageFont.load_default()
+    bank_value = calculate_bank_value(float_rating)
+    yield_value = calculate_yield_value(bank_value)
 
-    # PIL doesn't have an exact anchor without bbox checking in older versions, 
-    # but modern PIL supports it. We use a simple manual offset.
-    text_bbox_large = draw.textbbox((0, 0), player_name, font=font_large)
-    text_w_large = text_bbox_large[2] - text_bbox_large[0]
-    draw.text(((300 - text_w_large) / 2, 280), player_name, font=font_large, fill=(255, 255, 255, 255))
+    # Map database stats to API parameters
+    params = {
+        "name": stats.get("current_name", "Unknown"),
+        "rating": rating,
+        "rank": rank,
+        "peak_rating": peak_rating,
+        "peak_rank": peak_rank,
+        "bank": bank_value,
+        "yield": yield_value,
+        "rarity": get_rarity(rank) if rank != "N/A" else "D",
+    }
 
-    rating_text = f"Rating: {drating}"
-    text_bbox_small = draw.textbbox((0, 0), rating_text, font=font_small)
-    text_w_small = text_bbox_small[2] - text_bbox_small[0]
-    draw.text(((300 - text_w_small) / 2, 330), rating_text, font=font_small, fill=(255, 215, 0, 255))
+    # URL encoded parameters
+    query_string = urllib.parse.urlencode(params)
+    api_url = f"{API_BASE_URL}?{query_string}"
 
-    buffer = io.BytesIO()
-    base_img.save(buffer, format="PNG")
-    buffer.seek(0)
+    async with aiohttp.ClientSession() as session:
+        async with session.get(api_url) as resp:
+            if resp.status != 200:
+                error_text = await resp.text()
+                raise Exception(f"Satori API Error ({resp.status}): {error_text}")
+
+            data = await resp.read()
+            return io.BytesIO(data)
+
+async def create_card_grid(image_buffers: list[io.BytesIO], cols: int = 3) -> io.BytesIO:
+    """
+    Stitches multiple card images together into a grid (default 3 columns).
+    """
+    from PIL import Image
+    import math
+
+    images = [Image.open(buffer) for buffer in image_buffers]
+    if not images:
+        return io.BytesIO()
+
+    card_w = images[0].width
+    card_h = images[0].height
     
-    return buffer
+    rows = math.ceil(len(images) / cols)
+    
+    grid_w = cols * card_w
+    grid_h = rows * card_h
+    
+    combined = Image.new("RGBA", (grid_w, grid_h))
+    
+    for index, img in enumerate(images):
+        x = (index % cols) * card_w
+        y = (index // cols) * card_h
+        combined.paste(img, (x, y))
+    
+    out_buffer = io.BytesIO()
+    combined.save(out_buffer, format="PNG")
+    out_buffer.seek(0)
+    return out_buffer
