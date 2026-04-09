@@ -1,10 +1,13 @@
+from datetime import datetime, timezone, timedelta
+
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 from src import config
 from src.utils.economy_utils import calculate_bank_value
+from src.utils.autocomplete import card_autocomplete
 
-STARTING_BALANCE = 10000
+STARTING_BALANCE = 300
 
 class Economy(commands.Cog):
     def __init__(self, bot):
@@ -28,50 +31,64 @@ class Economy(commands.Cog):
                 ephemeral=True
             )
 
-    @tasks.loop(hours=24)
+    @tasks.loop(minutes=1)
     async def faucet_task(self):
         if getattr(self.bot, 'db', None) is None:
             return
-        try:
-            await self.bot.db.process_faucet_dividends()
-            print("Processed daily dividends!")
-        except Exception as e:
-            print(f"Error processing dividends: {e}")
+        state = await self.bot.db.get_system_state()
+        if not state:
+            return
+
+        now = datetime.now(timezone.utc)
+        next_ts = state["next_dividend_timestamp"]
+
+        if next_ts is None:
+            await self.bot.db.set_next_dividend_timestamp(now + timedelta(hours=24))
+            return
+
+        next_ts_utc = next_ts.replace(tzinfo=timezone.utc)
+
+        if next_ts_utc < now - timedelta(minutes=1):
+            # Stale (maintenance window) — reschedule from now, don't fire
+            await self.bot.db.set_next_dividend_timestamp(now + timedelta(hours=24))
+            return
+
+        if next_ts_utc <= now:
+            try:
+                await self.bot.db.process_faucet_dividends()
+                await self.bot.db.set_next_dividend_timestamp(now + timedelta(hours=24))
+                print("✅ Processed daily dividends!")
+            except Exception as e:
+                print(f"Error processing dividends: {e}")
 
     @faucet_task.before_loop
     async def before_faucet_task(self):
         await self.bot.wait_until_ready()
 
-    @app_commands.command(name="bank", description="Liquidate a card for immediate cash (drating value)")
-    @app_commands.describe(card_id="The ID of the card to sell to the bank")
+    @app_commands.command(name="bank", description="Sell a card directly to the bank for instant coins")
+    @app_commands.describe(card_id="The card to sell")
+    @app_commands.autocomplete(card_id=card_autocomplete)
     async def bank(self, interaction: discord.Interaction, card_id: str):
-        coins = await self.bot.db.get_user_coins(interaction.user.id)
-        if coins is None:
-            return await interaction.response.send_message("You must run /register first.", ephemeral=True)
-
-        user_cards = await self.bot.db.get_user_cards(interaction.user.id)
-        target_card = next((c for c in user_cards if str(c['card_id']) == card_id), None)
-        
-        if not target_card:
+        card = await self.bot.db.get_card_by_id(card_id, interaction.user.id)
+        if card is None:
             return await interaction.response.send_message("You do not own a card with that ID.", ephemeral=True)
 
-        rating = float(target_card['current_drating'])
-        sale_price = calculate_bank_value(rating)
-        
-        success = await self.bot.db.remove_card(card_id, interaction.user.id)
-        if success:
-            new_balance_raw = await self.bot.db.update_user_coins(interaction.user.id, sale_price)
-            new_balance = int(float(new_balance_raw)) if new_balance_raw is not None else 0
-            await interaction.response.send_message(f"Sold **{target_card['current_name']}** for {sale_price:,}.\nNew balance: {new_balance:,}")
-        else:
-            await interaction.response.send_message("Failed to process transaction.", ephemeral=True)
+        sale_price = calculate_bank_value(float(card['current_drating']))
+        new_balance = await self.bot.db.sell_card_to_bank(card_id, interaction.user.id, sale_price)
+
+        if new_balance is None:
+            return await interaction.response.send_message("Failed to process transaction.", ephemeral=True)
+
+        await interaction.response.send_message(
+            f"Sold **{card['current_name']}** for ⛃ {sale_price:,}.\nNew balance: ⛃ {int(float(new_balance)):,}"
+        )
 
     @app_commands.command(name="bal", description="Check your coin balance")
     async def balance(self, interaction: discord.Interaction):
         coins = await self.bot.db.get_user_coins(interaction.user.id)
         if coins is None:
             return await interaction.response.send_message("You must run /register first.", ephemeral=True)
-        await interaction.response.send_message(f"Balance: **{coins:,}**", ephemeral=True)
+        await interaction.response.send_message(f"Balance: ⛃ **{int(float(coins)):,}**", ephemeral=True)
 
 async def setup(bot):
     await bot.add_cog(Economy(bot))

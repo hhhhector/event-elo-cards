@@ -4,13 +4,13 @@ def calculate_bank_value(rating: float) -> int:
     """
     Formula: 10000 * (rating / 2200)^4
     """
-    return int(10000 * (rating / 2200)**4)
+    return int(10000 * (rating / 2200)**3)
 
 def calculate_yield_value(bank_value: int) -> int:
     """
-    Formula: bank_value / 7
+    Formula: bank_value / 10
     """
-    return int(bank_value / 7)
+    return int(bank_value / 10)
 
 def get_rarity(rank: Any) -> str:
     """Determine rarity based on rank threshold."""

@@ -41,6 +41,7 @@ class TCG_Bot(commands.Bot):
             self.tree.copy_global_to(guild=guild)
             await self.tree.sync(guild=guild)
             logging.info(f"Synced commands to guild {config.DEV_GUILD_ID}")
+            logging.info(f"application_id at setup_hook: {self.application_id}")
         else:
             await self.tree.sync()
             logging.info("Synced commands globally")
