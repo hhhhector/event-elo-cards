@@ -260,6 +260,7 @@ class Auction(commands.Cog):
         # Reset stale is_active in case the bot was killed mid-auction.
         # The View is gone so the auction is unrecoverable anyway.
         await self.bot.db.set_auction_active(False)
+        print("✅ Drop loop started.")
 
     async def _send_drop(self, players, title, *, interaction=None):
         """Send a drop to a channel or as an interaction followup."""

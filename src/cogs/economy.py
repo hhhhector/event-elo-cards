@@ -66,6 +66,7 @@ class Economy(commands.Cog):
     @faucet_task.before_loop
     async def before_faucet_task(self):
         await self.bot.wait_until_ready()
+        print("✅ Faucet task started.")
 
     @app_commands.command(name="bank", description="Sell a card directly to the bank for instant coins")
     @app_commands.describe(card_id="The card to sell")
