@@ -167,6 +167,18 @@ class Database:
         async with self.pool.acquire() as conn:
             return await conn.fetchrow(query)
 
+    async def claim_dividend_payout(self, expected_ts, next_ts) -> bool:
+        """Atomically claim the dividend payout by updating the timestamp only if it matches.
+        Returns True if this bot instance won the race, False if another already claimed it."""
+        query = """
+        UPDATE discord_tcg.system_state
+        SET next_dividend_timestamp = $1
+        WHERE id = 1 AND next_dividend_timestamp = $2
+        """
+        async with self.pool.acquire() as conn:
+            status = await conn.execute(query, next_ts, expected_ts)
+            return status == "UPDATE 1"
+
     async def set_next_dividend_timestamp(self, ts) -> None:
         query = "UPDATE discord_tcg.system_state SET next_dividend_timestamp = $1 WHERE id = 1"
         async with self.pool.acquire() as conn:

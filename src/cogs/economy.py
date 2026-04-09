@@ -55,8 +55,10 @@ class Economy(commands.Cog):
 
         if next_ts_utc <= now:
             try:
+                claimed = await self.bot.db.claim_dividend_payout(next_ts, now + timedelta(hours=24))
+                if not claimed:
+                    return  # Another instance already claimed it
                 await self.bot.db.process_faucet_dividends()
-                await self.bot.db.set_next_dividend_timestamp(now + timedelta(hours=24))
                 print("✅ Processed daily dividends!")
             except Exception as e:
                 print(f"Error processing dividends: {e}")
