@@ -32,23 +32,24 @@ def build_embeds(leaderboard_data, economy_stats, last_updated: str):
 
     s = economy_stats
     rarity_list = (
-        f"🟥 {s['cards_x']}\n"
-        f"🟨 {s['cards_s']}\n"
-        f"🟪 {s['cards_a']}\n"
-        f"🟦 {s['cards_b']}\n"
-        f"🟩 {s['cards_c']}\n"
-        f"⬜ {s['cards_d']}"
+        f"🟥: {s['cards_x']}\n"
+        f"🟨: {s['cards_s']}\n"
+        f"🟪: {s['cards_a']}\n"
+        f"🟦: {s['cards_b']}\n"
+        f"🟩: {s['cards_c']}\n"
+        f"⬜: {s['cards_d']}"
     )
 
     economy = discord.Embed(
         title="Economy",
         color=discord.Color.blurple(),
     )
+    economy.add_field(name="Cards", value=rarity_list, inline=True)
     economy.add_field(name="Registered Players", value=fmt(s["total_users"]), inline=True)
     economy.add_field(name="Total Cards", value=fmt(s["total_cards"]), inline=True)
     economy.add_field(name="Coins in Circulation", value=f"⛃ {fmt(s['total_coins'])}", inline=True)
     economy.add_field(name="Daily Yield (all cards)", value=f"⛃ {fmt(s['total_daily_yield'])}/day", inline=True)
-    economy.add_field(name="Cards", value=rarity_list, inline=True)
+    economy.set_footer(text=f"Updated {last_updated} UTC")
 
     return leaderboard, economy
 
