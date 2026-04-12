@@ -44,11 +44,11 @@ def build_embeds(leaderboard_data, economy_stats, last_updated: str):
         title="Economy",
         color=discord.Color.blurple(),
     )
-    economy.add_field(name="Cards", value=rarity_list, inline=False)
     economy.add_field(name="Registered Players", value=fmt(s["total_users"]), inline=True)
     economy.add_field(name="Total Cards", value=fmt(s["total_cards"]), inline=True)
     economy.add_field(name="Coins in Circulation", value=f"⛃ {fmt(s['total_coins'])}", inline=True)
     economy.add_field(name="Daily Yield (all cards)", value=f"⛃ {fmt(s['total_daily_yield'])}/day", inline=True)
+    economy.add_field(name="Cards", value=rarity_list, inline=False)
     economy.set_footer(text=f"Updated {last_updated} UTC")
 
     return leaderboard, economy
