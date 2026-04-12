@@ -112,6 +112,7 @@ class BidModal(discord.ui.Modal):
         if previous_bidder_info:
             prev_user_id, prev_bid = previous_bidder_info
             await self.bot.db.update_user_coins(prev_user_id, prev_bid)
+            print(f"  ↩️ Refunded ⛃ {prev_bid:,} to user {prev_user_id} (outbid on {self.player_name})")
             prev_user = self.bot.get_user(prev_user_id)
             if prev_user:
                 try:
@@ -123,6 +124,7 @@ class BidModal(discord.ui.Modal):
 
         # Deduct coins
         await self.bot.db.update_user_coins(user_id, -bid_amount)
+        print(f"  💸 User {user_id} bid ⛃ {bid_amount:,} on {self.player_name}")
 
         # Update state
         self.auction_view.bids[self.player_uuid] = bid_amount
@@ -185,33 +187,48 @@ class AuctionView(discord.ui.View):
         return callback
 
     async def on_timeout(self):
-        for child in self.children:
-            child.disabled = True
+        print(f"⏰ Auction timed out. Bids placed: {len(self.highest_bidders)}/{len(self.players)} cards.")
+        try:
+            for child in self.children:
+                child.disabled = True
 
-        winners_summary = []
-        for player_uuid, (user_id, bid_amount) in self.highest_bidders.items():
-            await self.bot.db.add_card_to_user(user_id, player_uuid)
-            player_name = next(
-                (p["current_name"] for p in self.players if p["uuid"] == player_uuid),
-                "Unknown",
-            )
-            winners_summary.append(f"<@{user_id}> won {player_name} for ⛃ {bid_amount:,}")
+            winners_summary = []
+            for player_uuid, (user_id, bid_amount) in self.highest_bidders.items():
+                player_name = next(
+                    (p["current_name"] for p in self.players if p["uuid"] == player_uuid),
+                    "Unknown",
+                )
+                print(f"  → Awarding {player_name} to user {user_id} for ⛃ {bid_amount:,}")
+                try:
+                    await self.bot.db.add_card_to_user(user_id, player_uuid)
+                    winners_summary.append(f"<@{user_id}> won {player_name} for ⛃ {bid_amount:,}")
+                    print(f"    ✅ Card awarded.")
+                except Exception as e:
+                    print(f"    ❌ Failed to award card: {e}")
 
-        if self.message:
+            if self.message:
+                try:
+                    await self.message.edit(view=self)
+                    print("  ✅ Auction buttons disabled.")
+                except discord.HTTPException as e:
+                    print(f"  ⚠️ Failed to disable auction buttons: {e}")
+                try:
+                    if winners_summary:
+                        reply_text = "**Auction Closed**\n" + "\n".join(winners_summary)
+                    else:
+                        reply_text = "**Auction Closed**\nNo bids placed."
+                    await self.message.reply(reply_text)
+                    print("  ✅ Auction close message sent.")
+                except discord.HTTPException as e:
+                    print(f"  ⚠️ Failed to send auction close message: {e}")
+        except Exception as e:
+            print(f"  ❌ Unexpected error during auction close: {e}")
+        finally:
             try:
-                await self.message.edit(view=self)
-            except discord.HTTPException as e:
-                print(f"Failed to disable auction buttons: {e}")
-            try:
-                if winners_summary:
-                    reply_text = "**Auction Closed**\n" + "\n".join(winners_summary)
-                else:
-                    reply_text = "**Auction Closed**\nNo bids placed."
-                await self.message.reply(reply_text)
-            except discord.HTTPException as e:
-                print(f"Failed to send auction close message: {e}")
-
-        await self.bot.db.set_auction_active(False)
+                await self.bot.db.set_auction_active(False)
+                print("🔒 is_active reset to False.")
+            except Exception as e:
+                print(f"CRITICAL: Failed to reset is_active: {e}")
 
 
 class Auction(commands.Cog):
@@ -264,10 +281,12 @@ class Auction(commands.Cog):
 
     async def _send_drop(self, players, title, *, interaction=None):
         """Send a drop to a channel or as an interaction followup."""
+        print(f"  Generating images for {len(players)} cards...")
         player_images = []
         for p in players:
             img_buffer = await generate_card_image(dict(p))
             player_images.append(img_buffer)
+            print(f"    ✅ Image generated: {p['current_name']}")
 
         combined_image = await create_card_grid(player_images, cols=3)
         file = discord.File(fp=combined_image, filename="drop.png")
@@ -276,11 +295,14 @@ class Auction(commands.Cog):
 
         if interaction:
             msg = await interaction.followup.send(content=content, file=file, view=view)
+            print("  ✅ Drop sent via interaction.")
         else:
             channel = self.bot.get_channel(config.DROP_CHANNEL_ID)
             if not channel:
+                print(f"  ❌ Drop channel {config.DROP_CHANNEL_ID} not found.")
                 return
             msg = await channel.send(content=content, file=file, view=view)
+            print(f"  ✅ Drop sent to channel {config.DROP_CHANNEL_ID}.")
 
         view.message = msg
 
@@ -288,11 +310,14 @@ class Auction(commands.Cog):
         count = poisson_card_count()
         players = await self.bot.db.get_random_unbanned_players(limit=count)
         if not players:
+            print("⚠️ Auto drop skipped: no eligible players found.")
             return
 
         await self.bot.db.set_auction_active(True)
         delta = next_drop_delta_seconds()
-        await self.bot.db.set_next_drop_timestamp(datetime.now(timezone.utc) + timedelta(seconds=delta))
+        next_ts = datetime.now(timezone.utc) + timedelta(seconds=delta)
+        await self.bot.db.set_next_drop_timestamp(next_ts)
+        print(f"🃏 Auto drop fired ({len(players)} cards). Next drop in {delta//60}m.")
         await self._send_drop(players, "MARKET DROP")
 
     async def _check_and_block_if_active(self, interaction) -> bool:
