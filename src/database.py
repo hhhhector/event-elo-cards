@@ -167,6 +167,74 @@ class Database:
         async with self.pool.acquire() as conn:
             return await conn.fetchrow(query)
 
+    async def get_stats_message_id(self) -> Optional[int]:
+        query = "SELECT stats_message_id FROM discord_tcg.system_state WHERE id = 1"
+        async with self.pool.acquire() as conn:
+            return await conn.fetchval(query)
+
+    async def set_stats_message_id(self, message_id: int) -> None:
+        query = "UPDATE discord_tcg.system_state SET stats_message_id = $1 WHERE id = 1"
+        async with self.pool.acquire() as conn:
+            await conn.execute(query, message_id)
+
+    async def get_leaderboard_coins(self, limit: int = 10) -> List[asyncpg.Record]:
+        query = """
+        SELECT discord_id, coins
+        FROM discord_tcg.users
+        ORDER BY coins DESC
+        LIMIT $1
+        """
+        async with self.pool.acquire() as conn:
+            return await conn.fetch(query, limit)
+
+    async def get_leaderboard_portfolio(self, limit: int = 10) -> List[asyncpg.Record]:
+        query = """
+        SELECT c.owner_id AS discord_id,
+               SUM(10000.0 * POWER(p.current_drating / 2200.0, 3)) AS portfolio
+        FROM discord_tcg.cards c
+        JOIN event_elo.players p ON c.player_uuid = p.uuid
+        WHERE p.is_banned = FALSE
+        GROUP BY c.owner_id
+        ORDER BY portfolio DESC
+        LIMIT $1
+        """
+        async with self.pool.acquire() as conn:
+            return await conn.fetch(query, limit)
+
+    async def get_leaderboard_combined(self, limit: int = 10) -> List[asyncpg.Record]:
+        query = """
+        SELECT u.discord_id,
+               u.coins + COALESCE(SUM(10000.0 * POWER(p.current_drating / 2200.0, 3)), 0) AS combined
+        FROM discord_tcg.users u
+        LEFT JOIN discord_tcg.cards c ON c.owner_id = u.discord_id
+        LEFT JOIN event_elo.players p ON c.player_uuid = p.uuid AND p.is_banned = FALSE
+        GROUP BY u.discord_id, u.coins
+        ORDER BY combined DESC
+        LIMIT $1
+        """
+        async with self.pool.acquire() as conn:
+            return await conn.fetch(query, limit)
+
+    async def get_economy_stats(self) -> Optional[asyncpg.Record]:
+        query = """
+        SELECT
+            (SELECT COUNT(*) FROM discord_tcg.users) AS total_users,
+            (SELECT COALESCE(SUM(coins), 0) FROM discord_tcg.users) AS total_coins,
+            (SELECT COUNT(*) FROM discord_tcg.cards) AS total_cards,
+            (SELECT COALESCE(SUM(10000.0 * POWER(p.current_drating / 2200.0, 3) / 10.0), 0)
+             FROM discord_tcg.cards c
+             JOIN event_elo.players p ON c.player_uuid = p.uuid
+             WHERE p.is_banned = FALSE) AS total_daily_yield,
+            (SELECT COUNT(*) FROM discord_tcg.cards c JOIN event_elo.players p ON c.player_uuid = p.uuid WHERE p.is_banned = FALSE AND p.current_rank <= 10) AS cards_x,
+            (SELECT COUNT(*) FROM discord_tcg.cards c JOIN event_elo.players p ON c.player_uuid = p.uuid WHERE p.is_banned = FALSE AND p.current_rank BETWEEN 11 AND 100) AS cards_s,
+            (SELECT COUNT(*) FROM discord_tcg.cards c JOIN event_elo.players p ON c.player_uuid = p.uuid WHERE p.is_banned = FALSE AND p.current_rank BETWEEN 101 AND 250) AS cards_a,
+            (SELECT COUNT(*) FROM discord_tcg.cards c JOIN event_elo.players p ON c.player_uuid = p.uuid WHERE p.is_banned = FALSE AND p.current_rank BETWEEN 251 AND 500) AS cards_b,
+            (SELECT COUNT(*) FROM discord_tcg.cards c JOIN event_elo.players p ON c.player_uuid = p.uuid WHERE p.is_banned = FALSE AND p.current_rank BETWEEN 501 AND 1000) AS cards_c,
+            (SELECT COUNT(*) FROM discord_tcg.cards c JOIN event_elo.players p ON c.player_uuid = p.uuid WHERE p.is_banned = FALSE AND p.current_rank > 1000) AS cards_d
+        """
+        async with self.pool.acquire() as conn:
+            return await conn.fetchrow(query)
+
     async def claim_dividend_payout(self, expected_ts, next_ts) -> bool:
         """Atomically claim the dividend payout by updating the timestamp only if it matches.
         Returns True if this bot instance won the race, False if another already claimed it."""

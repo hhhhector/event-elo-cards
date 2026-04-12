@@ -9,3 +9,4 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 # For testing and rapid iteration, set DEV_GUILD_ID to sync commands instantly
 DEV_GUILD_ID = os.getenv("DEV_GUILD_ID")
 DROP_CHANNEL_ID = int(os.getenv("DROP_CHANNEL_ID"))
+STATS_CHANNEL_ID = int(os.getenv("STATS_CHANNEL_ID"))

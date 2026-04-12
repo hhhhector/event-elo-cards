@@ -1,5 +1,4 @@
 import random
-import math
 from datetime import datetime, timezone, timedelta
 
 import discord
@@ -19,15 +18,6 @@ def next_drop_delta_seconds(avg_minutes: int = 60, min_minutes: int = 15, max_mi
     seconds = random.expovariate(1 / (avg_minutes * 60))
     return int(max(min_minutes * 60, min(max_minutes * 60, seconds)))
 
-
-def poisson_card_count(avg: int = 4, minimum: int = 1, maximum: int = 8) -> int:
-    count = 0
-    L = math.exp(-avg)
-    p = 1.0
-    while p > L:
-        p *= random.random()
-        count += 1
-    return max(minimum, min(maximum, count - 1))
 
 
 class BidModal(discord.ui.Modal):
@@ -307,8 +297,7 @@ class Auction(commands.Cog):
         view.message = msg
 
     async def _fire_auto_drop(self):
-        count = poisson_card_count()
-        players = await self.bot.db.get_random_unbanned_players(limit=count)
+        players = await self.bot.db.get_random_unbanned_players(limit=3)
         if not players:
             print("⚠️ Auto drop skipped: no eligible players found.")
             return

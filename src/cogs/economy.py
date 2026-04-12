@@ -9,6 +9,13 @@ from src.utils.autocomplete import card_autocomplete
 
 STARTING_BALANCE = 300
 
+
+def next_noon_utc(now: datetime) -> datetime:
+    today_noon = now.replace(hour=12, minute=0, second=0, microsecond=0)
+    if now >= today_noon:
+        return today_noon + timedelta(days=1)
+    return today_noon
+
 class Economy(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -43,7 +50,7 @@ class Economy(commands.Cog):
         next_ts = state["next_dividend_timestamp"]
 
         if next_ts is None:
-            next_time = now + timedelta(hours=24)
+            next_time = next_noon_utc(now)
             await self.bot.db.set_next_dividend_timestamp(next_time)
             print(f"💰 No dividend timestamp set. Scheduled for {next_time.strftime('%Y-%m-%d %H:%M UTC')}.")
             return
@@ -51,19 +58,20 @@ class Economy(commands.Cog):
         next_ts_utc = next_ts.replace(tzinfo=timezone.utc)
 
         if next_ts_utc < now - timedelta(minutes=1):
-            next_time = now + timedelta(hours=24)
+            next_time = next_noon_utc(now)
             await self.bot.db.set_next_dividend_timestamp(next_time)
             print(f"💰 Stale dividend timestamp detected. Rescheduled for {next_time.strftime('%Y-%m-%d %H:%M UTC')}.")
             return
 
         if next_ts_utc <= now:
             try:
-                claimed = await self.bot.db.claim_dividend_payout(next_ts, now + timedelta(hours=24))
+                next_time = next_noon_utc(now)
+                claimed = await self.bot.db.claim_dividend_payout(next_ts, next_time)
                 if not claimed:
                     print("💰 Dividend payout already claimed by another instance. Skipping.")
                     return
                 await self.bot.db.process_faucet_dividends()
-                print("✅ Processed daily dividends!")
+                print(f"✅ Processed daily dividends! Next payout: {next_time.strftime('%Y-%m-%d %H:%M UTC')}.")
             except Exception as e:
                 print(f"❌ Error processing dividends: {e}")
 

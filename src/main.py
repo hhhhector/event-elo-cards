@@ -26,7 +26,8 @@ class TCG_Bot(commands.Bot):
         cogs = [
             "src.cogs.economy",
             "src.cogs.auction",
-            "src.cogs.inventory"
+            "src.cogs.inventory",
+            "src.cogs.stats",
         ]
         for cog in cogs:
             try:

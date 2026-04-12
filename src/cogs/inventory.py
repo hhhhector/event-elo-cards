@@ -53,12 +53,14 @@ class Inventory(commands.Cog):
             )
 
         lines = []
+        total_yield = 0
         for c in cards:
             rating = int(float(c["current_drating"]))
             rarity = get_rarity(c["current_rank"])
             emoji = RARITY_EMOJI[rarity]
             bv = calculate_bank_value(float(c["current_drating"]))
             yield_val = calculate_yield_value(bv)
+            total_yield += yield_val
             lines.append(
                 f"{emoji} **{c['current_name']}** `{rating}` · ⛃ {bv:,} · ⛃ {yield_val:,}/day"
             )
@@ -73,7 +75,7 @@ class Inventory(commands.Cog):
             description=description,
             color=discord.Color.blue(),
         )
-        embed.set_footer(text=f"{len(cards)}/{roster_cap} cards · ⛃ {balance:,}")
+        embed.set_footer(text=f"{len(cards)}/{roster_cap} cards · ⛃ {balance:,} · ⛃ {total_yield:,}/day")
 
 
         await interaction.response.send_message(embed=embed)
