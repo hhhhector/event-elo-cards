@@ -22,33 +22,33 @@ def build_embeds(leaderboard_data, economy_stats, last_updated: str):
         return "\n".join(lines) if lines else "No data yet."
 
     leaderboard = discord.Embed(
-        title="🏆 Leaderboard",
+        title="Leaderboard",
         color=discord.Color.gold(),
     )
-    leaderboard.add_field(name="💰 Coins", value=leaderboard_field(coins_rows, "coins"), inline=True)
-    leaderboard.add_field(name="📦 Portfolio", value=leaderboard_field(portfolio_rows, "portfolio"), inline=True)
-    leaderboard.add_field(name="⚡ Combined", value=leaderboard_field(combined_rows, "combined"), inline=True)
+    leaderboard.add_field(name="Coins", value=leaderboard_field(coins_rows, "coins"), inline=True)
+    leaderboard.add_field(name="Portfolio", value=leaderboard_field(portfolio_rows, "portfolio"), inline=True)
+    leaderboard.add_field(name="Combined", value=leaderboard_field(combined_rows, "combined"), inline=True)
     leaderboard.set_footer(text=f"Updated {last_updated} UTC")
 
     s = economy_stats
-    rarity_breakdown = (
-        f"🟥 X: {s['cards_x']}  "
-        f"🟨 S: {s['cards_s']}  "
-        f"🟪 A: {s['cards_a']}  "
-        f"🟦 B: {s['cards_b']}  "
-        f"🟩 C: {s['cards_c']}  "
-        f"⬜ D: {s['cards_d']}"
+    rarity_list = (
+        f"🟥 {s['cards_x']}\n"
+        f"🟨 {s['cards_s']}\n"
+        f"🟪 {s['cards_a']}\n"
+        f"🟦 {s['cards_b']}\n"
+        f"🟩 {s['cards_c']}\n"
+        f"⬜ {s['cards_d']}"
     )
 
     economy = discord.Embed(
-        title="📊 Economy",
+        title="Economy",
         color=discord.Color.blurple(),
-        description=rarity_breakdown,
     )
     economy.add_field(name="Registered Players", value=fmt(s["total_users"]), inline=True)
     economy.add_field(name="Total Cards", value=fmt(s["total_cards"]), inline=True)
     economy.add_field(name="Coins in Circulation", value=f"⛃ {fmt(s['total_coins'])}", inline=True)
     economy.add_field(name="Daily Yield (all cards)", value=f"⛃ {fmt(s['total_daily_yield'])}/day", inline=True)
+    economy.add_field(name="Cards", value=rarity_list, inline=True)
 
     return leaderboard, economy
 
