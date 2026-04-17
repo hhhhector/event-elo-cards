@@ -81,9 +81,12 @@ class Stats(commands.Cog):
                 await self.leaderboard_messages[1].edit(embed=economy_embed)
                 print("📊 Stats messages updated.")
                 return
-            except discord.HTTPException as e:
-                print(f"⚠️ Failed to edit stats messages: {e}. Will repost.")
+            except discord.NotFound:
+                print("⚠️ Stats messages were deleted. Will repost.")
                 self.leaderboard_messages = []
+            except discord.HTTPException as e:
+                print(f"⚠️ Failed to edit stats messages (transient): {e}. Skipping this cycle.")
+                return
 
         # Post fresh messages and store IDs
         channel = self.bot.get_channel(config.STATS_CHANNEL_ID)

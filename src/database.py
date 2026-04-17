@@ -27,7 +27,7 @@ class Database:
             peak_rank,
             is_banned
         FROM event_elo.players
-        WHERE is_banned = FALSE
+        WHERE is_banned = FALSE AND current_drating IS NOT NULL
         ORDER BY random()
         LIMIT $1
         """

@@ -142,7 +142,7 @@ class BidModal(discord.ui.Modal):
 
 class AuctionView(discord.ui.View):
     def __init__(self, bot, players):
-        super().__init__(timeout=600)
+        super().__init__(timeout=1200)
         self.bot = bot
         self.players = players
         self.bids = {p["uuid"]: 0 for p in players}
@@ -150,6 +150,7 @@ class AuctionView(discord.ui.View):
         self.min_increments = {}
         self.highest_bidders = {}  # player_uuid -> (user_id, bid_amount)
         self.message = None
+        self.deadline = datetime.now(timezone.utc) + timedelta(minutes=20)
 
         for p in players:
             rating = float(p["current_drating"])
@@ -170,6 +171,8 @@ class AuctionView(discord.ui.View):
 
     def make_callback(self, player_uuid, player_name):
         async def callback(interaction: discord.Interaction):
+            if datetime.now(timezone.utc) > self.deadline:
+                return await interaction.response.send_message("This auction has ended.", ephemeral=True)
             balance = await self.bot.db.get_user_coins(interaction.user.id) or 0
             modal = BidModal(self.bot, player_uuid, player_name, self, int(float(balance)))
             await interaction.response.send_modal(modal)
@@ -261,6 +264,12 @@ class Auction(commands.Cog):
         if next_ts_utc <= now:
             await self._fire_auto_drop()
 
+    @drop_loop.error
+    async def on_drop_loop_error(self, error):
+        print(f"❌ Drop loop crashed: {error}. Restarting loop.")
+        await self.bot.db.set_auction_active(False)
+        self.drop_loop.restart()
+
     @drop_loop.before_loop
     async def before_drop_loop(self):
         await self.bot.wait_until_ready()
@@ -269,8 +278,7 @@ class Auction(commands.Cog):
         await self.bot.db.set_auction_active(False)
         print("✅ Drop loop started.")
 
-    async def _send_drop(self, players, title, *, interaction=None):
-        """Send a drop to a channel or as an interaction followup."""
+    async def _send_drop(self, players, title):
         print(f"  Generating images for {len(players)} cards...")
         player_images = []
         for p in players:
@@ -283,17 +291,12 @@ class Auction(commands.Cog):
         view = AuctionView(self.bot, players)
         content = f"**{title}**\nBid below. One active bid per drop."
 
-        if interaction:
-            msg = await interaction.followup.send(content=content, file=file, view=view)
-            print("  ✅ Drop sent via interaction.")
-        else:
-            channel = self.bot.get_channel(config.DROP_CHANNEL_ID)
-            if not channel:
-                print(f"  ❌ Drop channel {config.DROP_CHANNEL_ID} not found.")
-                return
-            msg = await channel.send(content=content, file=file, view=view)
-            print(f"  ✅ Drop sent to channel {config.DROP_CHANNEL_ID}.")
-
+        channel = self.bot.get_channel(config.DROP_CHANNEL_ID)
+        if not channel:
+            print(f"  ❌ Drop channel {config.DROP_CHANNEL_ID} not found.")
+            return
+        msg = await channel.send(content=content, file=file, view=view)
+        print(f"  ✅ Drop sent to channel {config.DROP_CHANNEL_ID}.")
         view.message = msg
 
     async def _fire_auto_drop(self):
@@ -307,49 +310,13 @@ class Auction(commands.Cog):
         next_ts = datetime.now(timezone.utc) + timedelta(seconds=delta)
         await self.bot.db.set_next_drop_timestamp(next_ts)
         print(f"🃏 Auto drop fired ({len(players)} cards). Next drop in {delta//60}m.")
-        await self._send_drop(players, "MARKET DROP")
+        try:
+            await self._send_drop(players, "MARKET DROP")
+        except Exception as e:
+            print(f"❌ Drop failed during send: {e}. Resetting is_active.")
+            await self.bot.db.set_auction_active(False)
+            raise
 
-    async def _check_and_block_if_active(self, interaction) -> bool:
-        """Returns True if blocked (auction active), False if clear to proceed."""
-        state = await self.bot.db.get_system_state()
-        if state and state["is_active"]:
-            await interaction.response.send_message(
-                "An auction is already in progress.", ephemeral=True
-            )
-            return True
-        return False
-
-    @app_commands.command(name="drop", description="Trigger a card drop")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def drop_cards(self, interaction: discord.Interaction):
-        if await self._check_and_block_if_active(interaction):
-            return
-        await interaction.response.defer()
-        await self.bot.db.set_auction_active(True)
-        players = await self.bot.db.get_random_unbanned_players(limit=3)
-        if not players:
-            return await interaction.followup.send("No eligible players found.")
-        await self._send_drop(players, "MARKET DROP", interaction=interaction)
-
-    @app_commands.command(
-        name="fulldrop",
-        description="DEBUG: Drops one card from every rarity tier (X, S, A, B, C, D)",
-    )
-    @app_commands.checks.has_permissions(administrator=True)
-    async def full_drop(self, interaction: discord.Interaction):
-        if await self._check_and_block_if_active(interaction):
-            return
-        await interaction.response.defer()
-        await self.bot.db.set_auction_active(True)
-        tiers = [(1, 10), (11, 100), (101, 250), (251, 500), (501, 1000), (1001, None)]
-        players = []
-        for low, high in tiers:
-            p = await self.bot.db.get_random_player_in_rank_range(low, high)
-            if p:
-                players.append(p)
-        if not players:
-            return await interaction.followup.send("No eligible players found.")
-        await self._send_drop(players, "FULL TIER DEBUG DROP", interaction=interaction)
 
 
 async def setup(bot):
