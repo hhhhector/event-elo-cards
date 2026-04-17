@@ -14,7 +14,7 @@ from src.utils.economy_utils import (
 )
 
 
-def next_drop_delta_seconds(avg_minutes: int = 60, min_minutes: int = 15, max_minutes: int = 120) -> int:
+def next_drop_delta_seconds(avg_minutes: int = 60, min_minutes: int = 21, max_minutes: int = 120) -> int:
     seconds = random.expovariate(1 / (avg_minutes * 60))
     return int(max(min_minutes * 60, min(max_minutes * 60, seconds)))
 
