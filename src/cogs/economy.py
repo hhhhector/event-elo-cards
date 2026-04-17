@@ -88,6 +88,18 @@ class Economy(commands.Cog):
         if card is None:
             return await interaction.response.send_message("You do not own a card with that ID.", ephemeral=True)
 
+        acquired_at = card['acquired_at'].replace(tzinfo=timezone.utc)
+        hold_until = acquired_at + timedelta(hours=4)
+        now = datetime.now(timezone.utc)
+        if now < hold_until:
+            remaining = hold_until - now
+            hours, remainder = divmod(int(remaining.total_seconds()), 3600)
+            minutes = remainder // 60
+            return await interaction.response.send_message(
+                f"Cards must be held for 4 hours before selling. Available in {hours}h {minutes}m.",
+                ephemeral=True,
+            )
+
         sale_price = calculate_bank_value(float(card['current_drating']))
         new_balance = await self.bot.db.sell_card_to_bank(card_id, interaction.user.id, sale_price)
 
