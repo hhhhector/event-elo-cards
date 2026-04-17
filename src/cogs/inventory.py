@@ -1,3 +1,5 @@
+import uuid
+
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -95,6 +97,13 @@ class Inventory(commands.Cog):
         if coins is None:
             return await interaction.response.send_message(
                 "You must run /register first.", ephemeral=True
+            )
+
+        try:
+            uuid.UUID(card_id)
+        except ValueError:
+            return await interaction.response.send_message(
+                "Invalid card ID. Use the autocomplete dropdown to select a card.", ephemeral=True
             )
 
         await interaction.response.defer()

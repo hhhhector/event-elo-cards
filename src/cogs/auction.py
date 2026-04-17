@@ -1,3 +1,4 @@
+import asyncio
 import random
 from datetime import datetime, timezone, timedelta
 
@@ -14,7 +15,7 @@ from src.utils.economy_utils import (
 )
 
 
-def next_drop_delta_seconds(avg_minutes: int = 60, min_minutes: int = 21, max_minutes: int = 120) -> int:
+def next_drop_delta_seconds(avg_minutes: int = 15, min_minutes: int = 10, max_minutes: int = 20) -> int:
     seconds = random.expovariate(1 / (avg_minutes * 60))
     return int(max(min_minutes * 60, min(max_minutes * 60, seconds)))
 
@@ -142,7 +143,7 @@ class BidModal(discord.ui.Modal):
 
 class AuctionView(discord.ui.View):
     def __init__(self, bot, players):
-        super().__init__(timeout=1200)
+        super().__init__(timeout=300)
         self.bot = bot
         self.players = players
         self.bids = {p["uuid"]: 0 for p in players}
@@ -150,7 +151,8 @@ class AuctionView(discord.ui.View):
         self.min_increments = {}
         self.highest_bidders = {}  # player_uuid -> (user_id, bid_amount)
         self.message = None
-        self.deadline = datetime.now(timezone.utc) + timedelta(minutes=20)
+        self.deadline = datetime.now(timezone.utc) + timedelta(minutes=5)
+        self._closed = False
 
         for p in players:
             rating = float(p["current_drating"])
@@ -180,6 +182,9 @@ class AuctionView(discord.ui.View):
         return callback
 
     async def on_timeout(self):
+        if self._closed:
+            return
+        self._closed = True
         print(f"⏰ Auction timed out. Bids placed: {len(self.highest_bidders)}/{len(self.players)} cards.")
         try:
             for child in self.children:
@@ -286,7 +291,7 @@ class Auction(commands.Cog):
             player_images.append(img_buffer)
             print(f"    ✅ Image generated: {p['current_name']}")
 
-        combined_image = await create_card_grid(player_images, cols=3)
+        combined_image = await create_card_grid(player_images, cols=5)
         file = discord.File(fp=combined_image, filename="drop.png")
         view = AuctionView(self.bot, players)
         content = f"**{title}**\nBid below. One active bid per drop."
@@ -298,9 +303,14 @@ class Auction(commands.Cog):
         msg = await channel.send(content=content, file=file, view=view)
         print(f"  ✅ Drop sent to channel {config.DROP_CHANNEL_ID}.")
         view.message = msg
+        asyncio.create_task(self._force_close_auction(view, seconds=300))
+
+    async def _force_close_auction(self, view: AuctionView, seconds: int):
+        await asyncio.sleep(seconds)
+        await view.on_timeout()
 
     async def _fire_auto_drop(self):
-        players = await self.bot.db.get_random_unbanned_players(limit=3)
+        players = await self.bot.db.get_random_unbanned_players(limit=5)
         if not players:
             print("⚠️ Auto drop skipped: no eligible players found.")
             return
