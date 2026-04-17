@@ -53,6 +53,10 @@ class BidModal(discord.ui.Modal):
 
         user_id = interaction.user.id
 
+        async with self.auction_view.bid_locks[self.player_uuid]:
+            await self._process_bid(interaction, user_id, bid_amount)
+
+    async def _process_bid(self, interaction: discord.Interaction, user_id: int, bid_amount: int):
         # Rule Enforcement: ONE card per user in this drop
         for p_uuid, (u_id, _) in self.auction_view.highest_bidders.items():
             if u_id == user_id and p_uuid != self.player_uuid:
@@ -150,6 +154,7 @@ class AuctionView(discord.ui.View):
         self.min_bids = {}
         self.min_increments = {}
         self.highest_bidders = {}  # player_uuid -> (user_id, bid_amount)
+        self.bid_locks = {p["uuid"]: asyncio.Lock() for p in players}
         self.message = None
         self.deadline = datetime.now(timezone.utc) + timedelta(minutes=5)
         self._closed = False
