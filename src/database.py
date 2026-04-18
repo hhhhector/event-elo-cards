@@ -221,7 +221,7 @@ class Database:
             (SELECT COUNT(*) FROM discord_tcg.users) AS total_users,
             (SELECT COALESCE(SUM(coins), 0) FROM discord_tcg.users) AS total_coins,
             (SELECT COUNT(*) FROM discord_tcg.cards) AS total_cards,
-            (SELECT COALESCE(SUM(10000.0 * POWER(p.current_drating / 2200.0, 3) / 10.0), 0)
+            (SELECT COALESCE(SUM(10000.0 * POWER(p.current_drating / 2200.0, 3) / 7.0), 0)
              FROM discord_tcg.cards c
              JOIN event_elo.players p ON c.player_uuid = p.uuid
              WHERE p.is_banned = FALSE) AS total_daily_yield,
@@ -267,12 +267,11 @@ class Database:
             await conn.execute(query, active)
 
     async def process_faucet_dividends(self):
-        # Calculate dividend: SUM(10000 * (rating / 2200)^3) / 10
         query = """
         WITH UserDividends AS (
             SELECT
                 c.owner_id,
-                SUM(10000.0 * POWER(p.current_drating / 2200.0, 3)) / 10.0 AS dividend
+                SUM(10000.0 * POWER(p.current_drating / 2200.0, 3)) / 7.0 AS dividend
             FROM discord_tcg.cards c
             JOIN event_elo.players p ON c.player_uuid = p.uuid
             WHERE p.is_banned = FALSE
