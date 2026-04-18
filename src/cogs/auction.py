@@ -15,8 +15,21 @@ from src.utils.economy_utils import (
 )
 
 
-def next_drop_delta_seconds(avg_minutes: int = 15, min_minutes: int = 10, max_minutes: int = 20) -> int:
-    seconds = random.expovariate(1 / (avg_minutes * 60))
+HOURLY_AVG_MINUTES = {
+    **{h: 60  for h in range(6, 12)},   # 06-12 dead
+    **{h: 30  for h in range(12, 16)},  # 12-16 EU waking
+    **{h: 22  for h in range(16, 20)},  # 16-20 EU peak, NA arriving
+    **{h: 15  for h in range(20, 24)},  # 20-00 peak overlap
+    **{h: 22  for h in range(0, 4)},    # 00-04 EU late, NA prime
+    **{h: 30  for h in range(4, 6)},    # 04-06 NA winding down
+}
+
+def next_drop_delta_seconds() -> int:
+    hour = datetime.now(timezone.utc).hour
+    avg = HOURLY_AVG_MINUTES[hour]
+    min_minutes = max(11, avg // 4)
+    max_minutes = avg * 2
+    seconds = random.expovariate(1 / (avg * 60))
     return int(max(min_minutes * 60, min(max_minutes * 60, seconds)))
 
 
@@ -147,7 +160,7 @@ class BidModal(discord.ui.Modal):
 
 class AuctionView(discord.ui.View):
     def __init__(self, bot, players):
-        super().__init__(timeout=300)
+        super().__init__(timeout=600)
         self.bot = bot
         self.players = players
         self.bids = {p["uuid"]: 0 for p in players}
@@ -156,7 +169,7 @@ class AuctionView(discord.ui.View):
         self.highest_bidders = {}  # player_uuid -> (user_id, bid_amount)
         self.bid_locks = {p["uuid"]: asyncio.Lock() for p in players}
         self.message = None
-        self.deadline = datetime.now(timezone.utc) + timedelta(minutes=5)
+        self.deadline = datetime.now(timezone.utc) + timedelta(minutes=10)
         self._closed = False
 
         for p in players:
@@ -308,7 +321,7 @@ class Auction(commands.Cog):
         msg = await channel.send(content=content, file=file, view=view)
         print(f"  ✅ Drop sent to channel {config.DROP_CHANNEL_ID}.")
         view.message = msg
-        asyncio.create_task(self._force_close_auction(view, seconds=300))
+        asyncio.create_task(self._force_close_auction(view, seconds=600))
 
     async def _force_close_auction(self, view: AuctionView, seconds: int):
         await asyncio.sleep(seconds)
