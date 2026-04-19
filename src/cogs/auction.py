@@ -16,18 +16,18 @@ from src.utils.economy_utils import (
 
 
 HOURLY_AVG_MINUTES = {
-    **{h: 60  for h in range(6, 12)},   # 06-12 dead
-    **{h: 30  for h in range(12, 16)},  # 12-16 EU waking
-    **{h: 22  for h in range(16, 20)},  # 16-20 EU peak, NA arriving
-    **{h: 15  for h in range(20, 24)},  # 20-00 peak overlap
-    **{h: 22  for h in range(0, 4)},    # 00-04 EU late, NA prime
-    **{h: 30  for h in range(4, 6)},    # 04-06 NA winding down
+    **{h: 50  for h in range(6, 12)},   # 06-12 dead
+    **{h: 20  for h in range(12, 16)},  # 12-16 EU waking
+    **{h: 12  for h in range(16, 20)},  # 16-20 EU peak, NA arriving
+    **{h: 5   for h in range(20, 24)},  # 20-00 peak overlap
+    **{h: 12  for h in range(0, 4)},    # 00-04 EU late, NA prime
+    **{h: 20  for h in range(4, 6)},    # 04-06 NA winding down
 }
 
 def next_drop_delta_seconds() -> int:
     hour = datetime.now(timezone.utc).hour
     avg = HOURLY_AVG_MINUTES[hour]
-    min_minutes = max(11, avg // 4)
+    min_minutes = avg // 4
     max_minutes = avg * 2
     seconds = random.expovariate(1 / (avg * 60))
     return int(max(min_minutes * 60, min(max_minutes * 60, seconds)))
@@ -121,6 +121,7 @@ class BidModal(discord.ui.Modal):
 
         # Refund previous bidder
         previous_bidder_info = self.auction_view.highest_bidders.get(self.player_uuid)
+        prev_user_id = None
         if previous_bidder_info:
             prev_user_id, prev_bid = previous_bidder_info
             await self.bot.db.update_user_coins(prev_user_id, prev_bid)
@@ -157,14 +158,15 @@ class BidModal(discord.ui.Modal):
 
         # Public announcement
         if self.auction_view.message:
-            await self.auction_view.message.channel.send(
-                f"<@{user_id}> bid ⛃ {bid_amount:,} on **{self.player_name}**. Minimum bid is now ⛃ {next_min:,}."
-            )
+            announcement = f"<@{user_id}> bid ⛃ {bid_amount:,} on **{self.player_name}**. Minimum bid is now ⛃ {next_min:,}."
+            if prev_user_id and prev_user_id != user_id:
+                announcement += f" (outbid <@{prev_user_id}>)"
+            await self.auction_view.message.channel.send(announcement)
 
 
 class AuctionView(discord.ui.View):
-    def __init__(self, bot, players):
-        super().__init__(timeout=600)
+    def __init__(self, bot, players, duration_seconds: int):
+        super().__init__(timeout=duration_seconds)
         self.bot = bot
         self.players = players
         self.bids = {p["uuid"]: 0 for p in players}
@@ -173,7 +175,7 @@ class AuctionView(discord.ui.View):
         self.highest_bidders = {}  # player_uuid -> (user_id, bid_amount)
         self.bid_locks = {p["uuid"]: asyncio.Lock() for p in players}
         self.message = None
-        self.deadline = datetime.now(timezone.utc) + timedelta(minutes=10)
+        self.deadline = datetime.now(timezone.utc) + timedelta(seconds=duration_seconds)
         self._closed = False
 
         for p in players:
@@ -254,6 +256,13 @@ class AuctionView(discord.ui.View):
                 print("🔒 is_active reset to False.")
             except Exception as e:
                 print(f"CRITICAL: Failed to reset is_active: {e}")
+            try:
+                delta = next_drop_delta_seconds()
+                next_ts = datetime.now(timezone.utc) + timedelta(seconds=delta)
+                await self.bot.db.set_next_drop_timestamp(next_ts)
+                print(f"🕒 Next drop scheduled in {delta // 60}m.")
+            except Exception as e:
+                print(f"❌ Failed to schedule next drop: {e}")
 
 
 class Auction(commands.Cog):
@@ -263,6 +272,42 @@ class Auction(commands.Cog):
 
     def cog_unload(self):
         self.drop_loop.cancel()
+
+    @app_commands.command(name="pingme", description="Toggle auction drop notifications")
+    async def pingme(self, interaction: discord.Interaction):
+        drop_channel = self.bot.get_channel(config.DROP_CHANNEL_ID)
+        if drop_channel is None:
+            return await interaction.response.send_message(
+                "Drop channel not available.", ephemeral=True
+            )
+        guild = drop_channel.guild
+        role = guild.get_role(config.AUCTION_PING_ROLE_ID)
+        if role is None:
+            return await interaction.response.send_message(
+                "Notification role not configured.", ephemeral=True
+            )
+        try:
+            member = await guild.fetch_member(interaction.user.id)
+        except discord.NotFound:
+            return await interaction.response.send_message(
+                "You must be a member of the server.", ephemeral=True
+            )
+        try:
+            if role in member.roles:
+                await member.remove_roles(role, reason="User disabled drop pings")
+                return await interaction.response.send_message(
+                    "Drop pings disabled.", ephemeral=True
+                )
+            else:
+                await member.add_roles(role, reason="User enabled drop pings")
+                return await interaction.response.send_message(
+                    "You'll be pinged for drops.", ephemeral=True
+                )
+        except discord.Forbidden:
+            return await interaction.response.send_message(
+                "I don't have permission to manage that role. Check role hierarchy and Manage Roles permission.",
+                ephemeral=True,
+            )
 
     @tasks.loop(minutes=1)
     async def drop_loop(self):
@@ -320,17 +365,23 @@ class Auction(commands.Cog):
 
         combined_image = await create_card_grid(player_images, cols=5)
         file = discord.File(fp=combined_image, filename="drop.png")
-        view = AuctionView(self.bot, players)
-        content = f"**{title}**\nBid below. One active bid per drop."
+        duration_seconds = random.randint(7 * 60, 15 * 60)
+        view = AuctionView(self.bot, players, duration_seconds)
+        content = f"<@&{config.AUCTION_PING_ROLE_ID}> **{title}**\nBid below. One active bid per drop."
 
         channel = self.bot.get_channel(config.DROP_CHANNEL_ID)
         if not channel:
             print(f"  ❌ Drop channel {config.DROP_CHANNEL_ID} not found.")
             return
-        msg = await channel.send(content=content, file=file, view=view)
-        print(f"  ✅ Drop sent to channel {config.DROP_CHANNEL_ID}.")
+        msg = await channel.send(
+            content=content,
+            file=file,
+            view=view,
+            allowed_mentions=discord.AllowedMentions(roles=True),
+        )
+        print(f"  ✅ Drop sent to channel {config.DROP_CHANNEL_ID}. Auction closes in {duration_seconds // 60}m {duration_seconds % 60}s.")
         view.message = msg
-        asyncio.create_task(self._force_close_auction(view, seconds=600))
+        asyncio.create_task(self._force_close_auction(view, seconds=duration_seconds))
 
     async def _force_close_auction(self, view: AuctionView, seconds: int):
         await asyncio.sleep(seconds)
@@ -343,10 +394,7 @@ class Auction(commands.Cog):
             return
 
         await self.bot.db.set_auction_active(True)
-        delta = next_drop_delta_seconds()
-        next_ts = datetime.now(timezone.utc) + timedelta(seconds=delta)
-        await self.bot.db.set_next_drop_timestamp(next_ts)
-        print(f"🃏 Auto drop fired ({len(players)} cards). Next drop in {delta//60}m.")
+        print(f"🃏 Auto drop fired ({len(players)} cards).")
         try:
             await self._send_drop(players, "MARKET DROP")
         except Exception as e:

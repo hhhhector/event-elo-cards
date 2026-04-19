@@ -48,4 +48,4 @@ def calculate_min_increment(bank_value: int) -> int:
     """
     Increment is 5% of Bank Value.
     """
-    return int(bank_value * 0.05)
+    return max(1, int(bank_value * 0.05))
