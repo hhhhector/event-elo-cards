@@ -67,6 +67,10 @@ class BidModal(discord.ui.Modal):
         user_id = interaction.user.id
 
         async with self.auction_view.bid_locks[self.player_uuid]:
+            if self.auction_view._closed:
+                return await interaction.response.send_message(
+                    "This auction has ended.", ephemeral=True
+                )
             await self._process_bid(interaction, user_id, bid_amount)
 
     async def _process_bid(self, interaction: discord.Interaction, user_id: int, bid_amount: int):
@@ -203,6 +207,11 @@ class AuctionView(discord.ui.View):
         if self._closed:
             return
         self._closed = True
+        # Drain every per-card lock so any in-flight BidModal.on_submit finishes
+        # (and any modal that arrives after this point will see _closed=True and reject).
+        for lock in self.bid_locks.values():
+            async with lock:
+                pass
         print(f"⏰ Auction timed out. Bids placed: {len(self.highest_bidders)}/{len(self.players)} cards.")
         try:
             for child in self.children:
