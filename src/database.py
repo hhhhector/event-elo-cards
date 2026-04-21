@@ -412,8 +412,9 @@ class Database:
     # --- Market KPI snapshots ---
 
     async def insert_kpi_snapshots(self) -> None:
-        """Compute median winning-bid / bank-value per rarity over the last 6h
-        of closed auctions and insert one snapshot row per rarity that has data."""
+        """Compute mean winning-bid / bank-value per rarity over the last 6h
+        of closed auctions and insert one snapshot row per rarity that has data.
+        (Column name `median_wb_over_bv` is legacy — value is now a mean.)"""
         query = """
         WITH closed_cards AS (
             SELECT
@@ -434,9 +435,7 @@ class Database:
               AND ac.bank_value > 0
         )
         INSERT INTO discord_tcg.market_kpi_snapshots (rarity, median_wb_over_bv, sample_size)
-        SELECT rarity,
-               PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY wb_over_bv),
-               COUNT(*)
+        SELECT rarity, AVG(wb_over_bv), COUNT(*)
         FROM closed_cards
         GROUP BY rarity
         """
@@ -449,6 +448,31 @@ class Database:
         FROM discord_tcg.market_kpi_snapshots
         WHERE taken_at >= NOW() - INTERVAL '1 hour' * $1
         ORDER BY taken_at ASC
+        """
+        async with self.pool.acquire() as conn:
+            return await conn.fetch(query, hours)
+
+    async def get_winning_bid_scatter(self, hours: int = 24) -> List[asyncpg.Record]:
+        """One row per closed auction with a winner in the window."""
+        query = """
+        SELECT
+            a.closed_at,
+            (ac.winning_bid::numeric / ac.bank_value::numeric) AS wb_over_bv,
+            CASE
+                WHEN ac.rank IS NULL THEN 'D'
+                WHEN ac.rank <= 10 THEN 'X'
+                WHEN ac.rank <= 100 THEN 'S'
+                WHEN ac.rank <= 250 THEN 'A'
+                WHEN ac.rank <= 500 THEN 'B'
+                WHEN ac.rank <= 1000 THEN 'C'
+                ELSE 'D'
+            END AS rarity
+        FROM discord_tcg.auction_cards ac
+        JOIN discord_tcg.auctions a ON ac.auction_id = a.id
+        WHERE a.closed_at >= NOW() - INTERVAL '1 hour' * $1
+          AND ac.winning_bid IS NOT NULL
+          AND ac.bank_value > 0
+        ORDER BY a.closed_at ASC
         """
         async with self.pool.acquire() as conn:
             return await conn.fetch(query, hours)

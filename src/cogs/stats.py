@@ -75,36 +75,60 @@ def build_embeds(leaderboard_data, economy_stats, last_updated: str):
     return leaderboard, economy
 
 
-def _render_kpi_chart(snapshots) -> bytes | None:
-    if not PLOTLY_AVAILABLE or not snapshots:
+def _render_kpi_chart(snapshots, scatter_rows) -> bytes | None:
+    if not PLOTLY_AVAILABLE:
         return None
 
-    series = defaultdict(lambda: {"x": [], "y": []})
+    line_series = defaultdict(lambda: {"x": [], "y": []})
     for row in snapshots:
-        median = row["median_wb_over_bv"]
-        if median is None:
+        avg = row["median_wb_over_bv"]
+        if avg is None:
             continue
-        series[row["rarity"]]["x"].append(row["taken_at"])
-        series[row["rarity"]]["y"].append(float(median))
+        line_series[row["rarity"]]["x"].append(row["taken_at"])
+        line_series[row["rarity"]]["y"].append(float(avg))
 
-    if not series:
+    dot_series = defaultdict(lambda: {"x": [], "y": []})
+    for row in scatter_rows:
+        dot_series[row["rarity"]]["x"].append(row["closed_at"])
+        dot_series[row["rarity"]]["y"].append(float(row["wb_over_bv"]))
+
+    if not line_series and not dot_series:
         return None
 
     fig = go.Figure()
+
+    # Scatter underneath, trendline on top, both colored by rarity and grouped in legend.
     for rarity in RARITY_ORDER:
-        if rarity not in series:
-            continue
-        fig.add_trace(go.Scatter(
-            x=series[rarity]["x"],
-            y=series[rarity]["y"],
-            mode="lines+markers",
-            name=rarity,
-            line=dict(color=RARITY_COLOR_HEX[rarity], width=2),
-            marker=dict(size=4),
-        ))
+        color = RARITY_COLOR_HEX[rarity]
+        if rarity in dot_series:
+            fig.add_trace(go.Scatter(
+                x=dot_series[rarity]["x"],
+                y=dot_series[rarity]["y"],
+                mode="markers",
+                name=rarity,
+                legendgroup=rarity,
+                showlegend=False,
+                marker=dict(color=color, size=5, opacity=0.35),
+                hovertemplate="%{x|%H:%M}<br>WB/BV: %{y:.2f}<extra></extra>",
+            ))
+        if rarity in line_series:
+            fig.add_trace(go.Scatter(
+                x=line_series[rarity]["x"],
+                y=line_series[rarity]["y"],
+                mode="lines",
+                name=rarity,
+                legendgroup=rarity,
+                line=dict(color=color, width=2.5),
+                hovertemplate="%{x|%H:%M}<br>mean WB/BV: %{y:.3f}<extra></extra>",
+            ))
+
+    fig.add_hline(
+        y=1.0,
+        line=dict(color="rgba(255,255,255,0.3)", width=1, dash="dash"),
+    )
 
     fig.update_layout(
-        title="Median Winning Bid / Bank Value · 6h rolling, by rarity",
+        title="Winning Bid / Bank Value · 24h scatter + 6h rolling mean, by rarity",
         xaxis_title="Time (UTC)",
         yaxis_title="WB / BV",
         template="plotly_dark",
@@ -140,15 +164,16 @@ class Stats(commands.Cog):
 
         try:
             snapshots = await self.bot.db.get_kpi_snapshots(hours=24)
+            scatter_rows = await self.bot.db.get_winning_bid_scatter(hours=24)
         except Exception as e:
-            print(f"⚠️ Failed to fetch KPI snapshots: {e}")
+            print(f"⚠️ Failed to fetch KPI data: {e}")
             return None
 
-        if not snapshots:
+        if not snapshots and not scatter_rows:
             return None
 
         try:
-            return await asyncio.to_thread(_render_kpi_chart, snapshots)
+            return await asyncio.to_thread(_render_kpi_chart, snapshots, scatter_rows)
         except Exception as e:
             print(f"⚠️ Failed to render KPI chart: {e}")
             return None
