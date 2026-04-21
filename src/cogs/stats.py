@@ -131,6 +131,7 @@ def _render_kpi_chart(snapshots, scatter_rows) -> bytes | None:
         title="Winning Bid / Bank Value · 24h scatter + 6h rolling mean, by rarity",
         xaxis_title="Time (UTC)",
         yaxis_title="WB / BV",
+        yaxis=dict(range=[0, 2]),
         template="plotly_dark",
         width=900,
         height=450,
