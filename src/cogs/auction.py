@@ -64,11 +64,15 @@ class BidModal(discord.ui.Modal):
                 "Invalid bid amount.", ephemeral=True
             )
 
+        # Defer before acquiring the lock so the 3s ACK deadline is guaranteed
+        # regardless of lock contention or DB latency in _process_bid.
+        await interaction.response.defer()
+
         user_id = interaction.user.id
 
         async with self.auction_view.bid_locks[self.player_uuid]:
             if self.auction_view._closed:
-                return await interaction.response.send_message(
+                return await interaction.followup.send(
                     "This auction has ended.", ephemeral=True
                 )
             await self._process_bid(interaction, user_id, bid_amount)
@@ -77,14 +81,14 @@ class BidModal(discord.ui.Modal):
         # Rule Enforcement: ONE card per user in this drop
         for p_uuid, (u_id, _) in self.auction_view.highest_bidders.items():
             if u_id == user_id and p_uuid != self.player_uuid:
-                return await interaction.response.send_message(
+                return await interaction.followup.send(
                     "You can only hold the highest bid on one card per drop.",
                     ephemeral=True,
                 )
 
         roster_info = await self.bot.db.get_user_roster_info(user_id)
         if roster_info is None:
-            return await interaction.response.send_message(
+            return await interaction.followup.send(
                 "You must run /register first.", ephemeral=True
             )
         coins = roster_info["coins"]
@@ -92,13 +96,13 @@ class BidModal(discord.ui.Modal):
 
         card_count = await self.bot.db.get_card_count(user_id)
         if card_count >= roster_cap:
-            return await interaction.response.send_message(
+            return await interaction.followup.send(
                 f"Your roster is full ({card_count}/{roster_cap}). Sell a card before bidding.",
                 ephemeral=True,
             )
 
         if coins < bid_amount:
-            return await interaction.response.send_message(
+            return await interaction.followup.send(
                 f"Insufficient balance. You have ⛃ {coins:,}.", ephemeral=True
             )
 
@@ -108,13 +112,13 @@ class BidModal(discord.ui.Modal):
 
         if current_high_bid == 0:
             if bid_amount < min_bid:
-                return await interaction.response.send_message(
+                return await interaction.followup.send(
                     f"Minimum bid is {min_bid:,}.",
                     ephemeral=True,
                 )
         else:
             if bid_amount < current_high_bid + min_inc:
-                return await interaction.response.send_message(
+                return await interaction.followup.send(
                     f"Bid must be at least {current_high_bid + min_inc:,}.",
                     ephemeral=True,
                 )
@@ -172,10 +176,14 @@ class BidModal(discord.ui.Modal):
                 item.style = discord.ButtonStyle.primary
                 break
 
-        await interaction.response.edit_message(view=self.auction_view)
-
-        # Public announcement
+        # Edit the auction message directly (bot webhook, not via interaction token —
+        # avoids Discord 3s interaction-token expiry during slow DB paths).
         if self.auction_view.message:
+            try:
+                await self.auction_view.message.edit(view=self.auction_view)
+            except discord.HTTPException as e:
+                print(f"  ⚠️ Failed to refresh auction view: {e}")
+
             announcement = f"<@{user_id}> bid ⛃ {bid_amount:,} on **{self.player_name}**. Minimum bid is now ⛃ {next_min:,}."
             if prev_user_id and prev_user_id != user_id:
                 announcement += f" (outbid <@{prev_user_id}>)"
