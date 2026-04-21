@@ -363,7 +363,7 @@ class Auction(commands.Cog):
             player_images.append(img_buffer)
             print(f"    ✅ Image generated: {p['current_name']}")
 
-        combined_image = await create_card_grid(player_images, cols=5)
+        combined_image = await create_card_grid(player_images, cols=3)
         file = discord.File(fp=combined_image, filename="drop.png")
         duration_seconds = random.randint(7 * 60, 15 * 60)
         view = AuctionView(self.bot, players, duration_seconds)
@@ -388,7 +388,7 @@ class Auction(commands.Cog):
         await view.on_timeout()
 
     async def _fire_auto_drop(self):
-        players = await self.bot.db.get_random_unbanned_players(limit=5)
+        players = await self.bot.db.get_random_unbanned_players(limit=6)
         if not players:
             print("⚠️ Auto drop skipped: no eligible players found.")
             return
