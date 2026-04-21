@@ -26,14 +26,15 @@ class Economy(commands.Cog):
 
     @app_commands.command(name="register", description="Join the game and receive starting coins")
     async def register(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
         success = await self.bot.db.register_user(interaction.user.id, STARTING_BALANCE)
         if success:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"Welcome. You have received {STARTING_BALANCE:,} starting coins.",
                 ephemeral=True
             )
         else:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "You are already registered.",
                 ephemeral=True
             )
@@ -84,9 +85,10 @@ class Economy(commands.Cog):
     @app_commands.describe(card_id="The card to sell")
     @app_commands.autocomplete(card_id=card_autocomplete)
     async def bank(self, interaction: discord.Interaction, card_id: str):
+        await interaction.response.defer()
         card = await self.bot.db.get_card_by_id(card_id, interaction.user.id)
         if card is None:
-            return await interaction.response.send_message("You do not own a card with that ID.", ephemeral=True)
+            return await interaction.followup.send("You do not own a card with that ID.", ephemeral=True)
 
         acquired_at = card['acquired_at'].replace(tzinfo=timezone.utc)
         hold_until = acquired_at + timedelta(hours=8)
@@ -95,7 +97,7 @@ class Economy(commands.Cog):
             remaining = hold_until - now
             hours, remainder = divmod(int(remaining.total_seconds()), 3600)
             minutes = remainder // 60
-            return await interaction.response.send_message(
+            return await interaction.followup.send(
                 f"Cards must be held for 8 hours before selling. Available in {hours}h {minutes}m.",
                 ephemeral=True,
             )
@@ -104,7 +106,7 @@ class Economy(commands.Cog):
         new_balance = await self.bot.db.sell_card_to_bank(card_id, interaction.user.id, sale_price)
 
         if new_balance is None:
-            return await interaction.response.send_message("Failed to process transaction.", ephemeral=True)
+            return await interaction.followup.send("Failed to process transaction.", ephemeral=True)
 
         try:
             rank_raw = card.get('current_rank')
@@ -121,16 +123,17 @@ class Economy(commands.Cog):
         except Exception as e:
             print(f"⚠️ Failed to log sale: {e}")
 
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"Sold **{card['current_name']}** for ⛃ {sale_price:,}.\nNew balance: ⛃ {int(float(new_balance)):,}"
         )
 
     @app_commands.command(name="bal", description="Check your coin balance")
     async def balance(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
         coins = await self.bot.db.get_user_coins(interaction.user.id)
         if coins is None:
-            return await interaction.response.send_message("You must run /register first.", ephemeral=True)
-        await interaction.response.send_message(f"Balance: ⛃ **{int(float(coins)):,}**", ephemeral=True)
+            return await interaction.followup.send("You must run /register first.", ephemeral=True)
+        await interaction.followup.send(f"Balance: ⛃ **{int(float(coins)):,}**", ephemeral=True)
 
 async def setup(bot):
     await bot.add_cog(Economy(bot))

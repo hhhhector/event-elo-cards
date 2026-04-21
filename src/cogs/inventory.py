@@ -42,15 +42,17 @@ class Inventory(commands.Cog):
                 "Database not connected.", ephemeral=True
             )
 
+        await interaction.response.defer()
+
         roster_info = await self.bot.db.get_user_roster_info(interaction.user.id)
         if roster_info is None:
-            return await interaction.response.send_message(
+            return await interaction.followup.send(
                 "You must run /register first.", ephemeral=True
             )
 
         cards = await self.bot.db.get_user_cards(interaction.user.id)
         if not cards:
-            return await interaction.response.send_message(
+            return await interaction.followup.send(
                 "You have no cards.", ephemeral=True
             )
 
@@ -80,7 +82,7 @@ class Inventory(commands.Cog):
         embed.set_footer(text=f"{len(cards)}/{roster_cap} cards · ⛃ {balance:,} · ⛃ {total_yield:,}/day")
 
 
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
 
     @app_commands.command(
         name="view", description="View a specific card's image and details"
@@ -93,12 +95,6 @@ class Inventory(commands.Cog):
                 "Database not connected.", ephemeral=True
             )
 
-        coins = await self.bot.db.get_user_coins(interaction.user.id)
-        if coins is None:
-            return await interaction.response.send_message(
-                "You must run /register first.", ephemeral=True
-            )
-
         try:
             uuid.UUID(card_id)
         except ValueError:
@@ -107,6 +103,12 @@ class Inventory(commands.Cog):
             )
 
         await interaction.response.defer()
+
+        coins = await self.bot.db.get_user_coins(interaction.user.id)
+        if coins is None:
+            return await interaction.followup.send(
+                "You must run /register first.", ephemeral=True
+            )
 
         target_card = await self.bot.db.get_card_by_id(card_id, interaction.user.id)
         if not target_card:

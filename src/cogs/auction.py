@@ -321,36 +321,37 @@ class Auction(commands.Cog):
 
     @app_commands.command(name="pingme", description="Toggle auction drop notifications")
     async def pingme(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
         drop_channel = self.bot.get_channel(config.DROP_CHANNEL_ID)
         if drop_channel is None:
-            return await interaction.response.send_message(
+            return await interaction.followup.send(
                 "Drop channel not available.", ephemeral=True
             )
         guild = drop_channel.guild
         role = guild.get_role(config.AUCTION_PING_ROLE_ID)
         if role is None:
-            return await interaction.response.send_message(
+            return await interaction.followup.send(
                 "Notification role not configured.", ephemeral=True
             )
         try:
             member = await guild.fetch_member(interaction.user.id)
         except discord.NotFound:
-            return await interaction.response.send_message(
+            return await interaction.followup.send(
                 "You must be a member of the server.", ephemeral=True
             )
         try:
             if role in member.roles:
                 await member.remove_roles(role, reason="User disabled drop pings")
-                return await interaction.response.send_message(
+                return await interaction.followup.send(
                     "Drop pings disabled.", ephemeral=True
                 )
             else:
                 await member.add_roles(role, reason="User enabled drop pings")
-                return await interaction.response.send_message(
+                return await interaction.followup.send(
                     "You'll be pinged for drops.", ephemeral=True
                 )
         except discord.Forbidden:
-            return await interaction.response.send_message(
+            return await interaction.followup.send(
                 "I don't have permission to manage that role. Check role hierarchy and Manage Roles permission.",
                 ephemeral=True,
             )
