@@ -408,3 +408,47 @@ class Database:
         """
         async with self.pool.acquire() as conn:
             await conn.execute(query, str(user_id), player_uuid, rating, rank, sale_price, held_seconds)
+
+    # --- Market KPI snapshots ---
+
+    async def insert_kpi_snapshots(self) -> None:
+        """Compute median winning-bid / bank-value per rarity over the last 6h
+        of closed auctions and insert one snapshot row per rarity that has data."""
+        query = """
+        WITH closed_cards AS (
+            SELECT
+                ac.winning_bid::numeric / NULLIF(ac.bank_value, 0)::numeric AS wb_over_bv,
+                CASE
+                    WHEN ac.rank IS NULL THEN 'D'
+                    WHEN ac.rank <= 10 THEN 'X'
+                    WHEN ac.rank <= 100 THEN 'S'
+                    WHEN ac.rank <= 250 THEN 'A'
+                    WHEN ac.rank <= 500 THEN 'B'
+                    WHEN ac.rank <= 1000 THEN 'C'
+                    ELSE 'D'
+                END AS rarity
+            FROM discord_tcg.auction_cards ac
+            JOIN discord_tcg.auctions a ON ac.auction_id = a.id
+            WHERE a.closed_at >= NOW() - INTERVAL '6 hours'
+              AND ac.winning_bid IS NOT NULL
+              AND ac.bank_value > 0
+        )
+        INSERT INTO discord_tcg.market_kpi_snapshots (rarity, median_wb_over_bv, sample_size)
+        SELECT rarity,
+               PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY wb_over_bv),
+               COUNT(*)
+        FROM closed_cards
+        GROUP BY rarity
+        """
+        async with self.pool.acquire() as conn:
+            await conn.execute(query)
+
+    async def get_kpi_snapshots(self, hours: int = 24) -> List[asyncpg.Record]:
+        query = """
+        SELECT taken_at, rarity, median_wb_over_bv, sample_size
+        FROM discord_tcg.market_kpi_snapshots
+        WHERE taken_at >= NOW() - INTERVAL '1 hour' * $1
+        ORDER BY taken_at ASC
+        """
+        async with self.pool.acquire() as conn:
+            return await conn.fetch(query, hours)

@@ -1,9 +1,30 @@
+import asyncio
+import io
+from collections import defaultdict
 from datetime import datetime, timezone
 
 import discord
 from discord.ext import commands, tasks
 
 from src import config
+
+try:
+    import plotly.graph_objects as go
+    PLOTLY_AVAILABLE = True
+except ImportError:
+    PLOTLY_AVAILABLE = False
+
+
+RARITY_COLOR_HEX = {
+    "X": "#EF4444",
+    "S": "#F59E0B",
+    "A": "#A855F7",
+    "B": "#0EA5E9",
+    "C": "#22C55E",
+    "D": "#64748B",
+}
+
+RARITY_ORDER = ["X", "S", "A", "B", "C", "D"]
 
 
 def fmt(n) -> str:
@@ -54,6 +75,47 @@ def build_embeds(leaderboard_data, economy_stats, last_updated: str):
     return leaderboard, economy
 
 
+def _render_kpi_chart(snapshots) -> bytes | None:
+    if not PLOTLY_AVAILABLE or not snapshots:
+        return None
+
+    series = defaultdict(lambda: {"x": [], "y": []})
+    for row in snapshots:
+        median = row["median_wb_over_bv"]
+        if median is None:
+            continue
+        series[row["rarity"]]["x"].append(row["taken_at"])
+        series[row["rarity"]]["y"].append(float(median))
+
+    if not series:
+        return None
+
+    fig = go.Figure()
+    for rarity in RARITY_ORDER:
+        if rarity not in series:
+            continue
+        fig.add_trace(go.Scatter(
+            x=series[rarity]["x"],
+            y=series[rarity]["y"],
+            mode="lines+markers",
+            name=rarity,
+            line=dict(color=RARITY_COLOR_HEX[rarity], width=2),
+            marker=dict(size=4),
+        ))
+
+    fig.update_layout(
+        title="Median Winning Bid / Bank Value · 6h rolling, by rarity",
+        xaxis_title="Time (UTC)",
+        yaxis_title="WB / BV",
+        template="plotly_dark",
+        width=900,
+        height=450,
+        margin=dict(l=60, r=20, t=60, b=50),
+        legend=dict(orientation="h", y=-0.2),
+    )
+    return fig.to_image(format="png")
+
+
 class Stats(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -70,15 +132,48 @@ class Stats(commands.Cog):
         economy = await self.bot.db.get_economy_stats()
         return (coins, portfolio, combined), economy
 
+    async def _build_chart_bytes(self) -> bytes | None:
+        try:
+            await self.bot.db.insert_kpi_snapshots()
+        except Exception as e:
+            print(f"⚠️ Failed to insert KPI snapshot: {e}")
+
+        try:
+            snapshots = await self.bot.db.get_kpi_snapshots(hours=24)
+        except Exception as e:
+            print(f"⚠️ Failed to fetch KPI snapshots: {e}")
+            return None
+
+        if not snapshots:
+            return None
+
+        try:
+            return await asyncio.to_thread(_render_kpi_chart, snapshots)
+        except Exception as e:
+            print(f"⚠️ Failed to render KPI chart: {e}")
+            return None
+
     async def _update_messages(self):
         leaderboard_data, economy_stats = await self._fetch_data()
+        chart_bytes = await self._build_chart_bytes()
+
         now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
         leaderboard_embed, economy_embed = build_embeds(leaderboard_data, economy_stats, now)
+
+        if chart_bytes:
+            economy_embed.set_image(url="attachment://kpi_chart.png")
+
+        def new_chart_file():
+            return discord.File(io.BytesIO(chart_bytes), filename="kpi_chart.png") if chart_bytes else None
 
         if self.leaderboard_messages:
             try:
                 await self.leaderboard_messages[0].edit(embed=leaderboard_embed)
-                await self.leaderboard_messages[1].edit(embed=economy_embed)
+                chart_file = new_chart_file()
+                if chart_file is not None:
+                    await self.leaderboard_messages[1].edit(embed=economy_embed, attachments=[chart_file])
+                else:
+                    await self.leaderboard_messages[1].edit(embed=economy_embed, attachments=[])
                 print("📊 Stats messages updated.")
                 return
             except discord.NotFound:
@@ -95,7 +190,11 @@ class Stats(commands.Cog):
             return
 
         msg1 = await channel.send(embed=leaderboard_embed)
-        msg2 = await channel.send(embed=economy_embed)
+        chart_file = new_chart_file()
+        if chart_file is not None:
+            msg2 = await channel.send(embed=economy_embed, file=chart_file)
+        else:
+            msg2 = await channel.send(embed=economy_embed)
         self.leaderboard_messages = [msg1, msg2]
 
         # Persist the first message ID so we can recover it on restart
