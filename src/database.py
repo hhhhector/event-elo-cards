@@ -130,7 +130,7 @@ class Database:
 
     async def get_card_by_id(self, card_id: str, owner_id: int) -> Optional[asyncpg.Record]:
         query = """
-        SELECT c.id as card_id, c.player_uuid, c.acquired_at, p.current_name, p.current_drating
+        SELECT c.id as card_id, c.player_uuid, c.acquired_at, p.current_name, p.current_drating, p.current_rank
         FROM discord_tcg.cards c
         JOIN event_elo.players p ON c.player_uuid = p.uuid
         WHERE c.id = $1 AND c.owner_id = $2
@@ -271,16 +271,140 @@ class Database:
         WITH UserDividends AS (
             SELECT
                 c.owner_id,
-                SUM(10000.0 * POWER(p.current_drating / 2200.0, 3)) / 7.0 AS dividend
+                (SUM(10000.0 * POWER(p.current_drating / 2200.0, 3)) / 7.0)::INT AS dividend
             FROM discord_tcg.cards c
             JOIN event_elo.players p ON c.player_uuid = p.uuid
             WHERE p.is_banned = FALSE
             GROUP BY c.owner_id
+        ),
+        Updated AS (
+            UPDATE discord_tcg.users u
+            SET coins = u.coins + ud.dividend
+            FROM UserDividends ud
+            WHERE u.discord_id = ud.owner_id
+            RETURNING ud.owner_id, ud.dividend
         )
-        UPDATE discord_tcg.users u
-        SET coins = u.coins + ud.dividend
-        FROM UserDividends ud
-        WHERE u.discord_id = ud.owner_id;
+        INSERT INTO discord_tcg.dividend_payouts (user_id, amount)
+        SELECT owner_id, dividend FROM Updated WHERE dividend > 0;
         """
         async with self.pool.acquire() as conn:
             await conn.execute(query)
+
+    # --- Market logging ---
+
+    async def create_auction(self, duration_seconds: int) -> str:
+        query = """
+        INSERT INTO discord_tcg.auctions (duration_seconds)
+        VALUES ($1)
+        RETURNING id
+        """
+        async with self.pool.acquire() as conn:
+            return str(await conn.fetchval(query, duration_seconds))
+
+    async def create_auction_card(
+        self,
+        auction_id: str,
+        player_uuid: str,
+        rating: float,
+        rank: Optional[int],
+        bank_value: int,
+        min_bid: int,
+        min_increment: int,
+    ) -> str:
+        query = """
+        INSERT INTO discord_tcg.auction_cards
+            (auction_id, player_uuid, rating, rank, bank_value, min_bid, min_increment)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        RETURNING id
+        """
+        async with self.pool.acquire() as conn:
+            return str(await conn.fetchval(
+                query, auction_id, player_uuid, rating, rank, bank_value, min_bid, min_increment
+            ))
+
+    async def log_bid(self, auction_card_id: str, user_id: int, amount: int) -> str:
+        query = """
+        INSERT INTO discord_tcg.bids (auction_card_id, user_id, amount)
+        VALUES ($1, $2, $3)
+        RETURNING id
+        """
+        async with self.pool.acquire() as conn:
+            return str(await conn.fetchval(query, auction_card_id, str(user_id), amount))
+
+    async def refund_bid(self, bid_id: str) -> Optional[int]:
+        """Atomically mark a bid as refunded and credit its amount back to the bidder.
+        Returns the new coin balance, or None if the bid was already refunded / not found."""
+        query = """
+        WITH b AS (
+            UPDATE discord_tcg.bids
+            SET was_refunded = TRUE, refunded_at = NOW()
+            WHERE id = $1 AND was_refunded = FALSE
+            RETURNING user_id, amount
+        )
+        UPDATE discord_tcg.users u
+        SET coins = u.coins + b.amount, last_active = CURRENT_TIMESTAMP
+        FROM b
+        WHERE u.discord_id = b.user_id
+        RETURNING u.coins
+        """
+        async with self.pool.acquire() as conn:
+            return await conn.fetchval(query, bid_id)
+
+    async def finalize_auction_card(
+        self,
+        auction_card_id: str,
+        winner_id: Optional[int],
+        winning_bid: Optional[int],
+    ) -> None:
+        winner_str = str(winner_id) if winner_id is not None else None
+        async with self.pool.acquire() as conn:
+            async with conn.transaction():
+                await conn.execute(
+                    """
+                    UPDATE discord_tcg.auction_cards
+                    SET winner_id = $2,
+                        winning_bid = $3,
+                        bid_count = (SELECT COUNT(*) FROM discord_tcg.bids WHERE auction_card_id = $1)
+                    WHERE id = $1
+                    """,
+                    auction_card_id, winner_str, winning_bid,
+                )
+                if winner_str is not None and winning_bid is not None:
+                    await conn.execute(
+                        """
+                        UPDATE discord_tcg.bids
+                        SET was_winner = TRUE
+                        WHERE id = (
+                            SELECT id FROM discord_tcg.bids
+                            WHERE auction_card_id = $1 AND user_id = $2 AND amount = $3
+                            ORDER BY placed_at DESC
+                            LIMIT 1
+                        )
+                        """,
+                        auction_card_id, winner_str, winning_bid,
+                    )
+
+    async def finalize_auction(self, auction_id: str) -> None:
+        query = """
+        UPDATE discord_tcg.auctions
+        SET closed_at = NOW()
+        WHERE id = $1
+        """
+        async with self.pool.acquire() as conn:
+            await conn.execute(query, auction_id)
+
+    async def log_sale(
+        self,
+        user_id: int,
+        player_uuid: str,
+        rating: float,
+        rank: Optional[int],
+        sale_price: int,
+        held_seconds: int,
+    ) -> None:
+        query = """
+        INSERT INTO discord_tcg.sales (user_id, player_uuid, rating, rank, sale_price, held_seconds)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        """
+        async with self.pool.acquire() as conn:
+            await conn.execute(query, str(user_id), player_uuid, rating, rank, sale_price, held_seconds)

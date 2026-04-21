@@ -106,6 +106,21 @@ class Economy(commands.Cog):
         if new_balance is None:
             return await interaction.response.send_message("Failed to process transaction.", ephemeral=True)
 
+        try:
+            rank_raw = card.get('current_rank')
+            rank = int(rank_raw) if rank_raw is not None else None
+            held_seconds = int((now - acquired_at).total_seconds())
+            await self.bot.db.log_sale(
+                interaction.user.id,
+                card['player_uuid'],
+                float(card['current_drating']),
+                rank,
+                sale_price,
+                held_seconds,
+            )
+        except Exception as e:
+            print(f"⚠️ Failed to log sale: {e}")
+
         await interaction.response.send_message(
             f"Sold **{card['current_name']}** for ⛃ {sale_price:,}.\nNew balance: ⛃ {int(float(new_balance)):,}"
         )

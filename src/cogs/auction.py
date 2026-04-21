@@ -119,12 +119,20 @@ class BidModal(discord.ui.Modal):
                     ephemeral=True,
                 )
 
-        # Refund previous bidder
+        # Refund previous bidder (atomic: credits coins + marks bid refunded in one tx)
         previous_bidder_info = self.auction_view.highest_bidders.get(self.player_uuid)
         prev_user_id = None
         if previous_bidder_info:
             prev_user_id, prev_bid = previous_bidder_info
-            await self.bot.db.update_user_coins(prev_user_id, prev_bid)
+            prev_bid_id = self.auction_view.last_bid_ids.get(self.player_uuid)
+            if prev_bid_id:
+                try:
+                    await self.bot.db.refund_bid(prev_bid_id)
+                except Exception as e:
+                    print(f"  ⚠️ refund_bid failed, falling back to non-atomic: {e}")
+                    await self.bot.db.update_user_coins(prev_user_id, prev_bid)
+            else:
+                await self.bot.db.update_user_coins(prev_user_id, prev_bid)
             print(f"  ↩️ Refunded ⛃ {prev_bid:,} to user {prev_user_id} (outbid on {self.player_name})")
             prev_user = self.bot.get_user(prev_user_id)
             if prev_user:
@@ -142,6 +150,16 @@ class BidModal(discord.ui.Modal):
         # Update state
         self.auction_view.bids[self.player_uuid] = bid_amount
         self.auction_view.highest_bidders[self.player_uuid] = (user_id, bid_amount)
+
+        # Log the bid and remember its id so the next outbid can refund it atomically
+        auction_card_id = self.auction_view.auction_card_ids.get(self.player_uuid)
+        if auction_card_id:
+            try:
+                new_bid_id = await self.bot.db.log_bid(auction_card_id, user_id, bid_amount)
+                self.auction_view.last_bid_ids[self.player_uuid] = new_bid_id
+            except Exception as e:
+                print(f"  ⚠️ Failed to log bid: {e}")
+                self.auction_view.last_bid_ids[self.player_uuid] = None
 
         # Update button label and style
         next_min = bid_amount + min_inc
@@ -165,7 +183,7 @@ class BidModal(discord.ui.Modal):
 
 
 class AuctionView(discord.ui.View):
-    def __init__(self, bot, players, duration_seconds: int):
+    def __init__(self, bot, players, duration_seconds: int, auction_id=None, auction_card_ids=None):
         super().__init__(timeout=duration_seconds)
         self.bot = bot
         self.players = players
@@ -177,6 +195,9 @@ class AuctionView(discord.ui.View):
         self.message = None
         self.deadline = datetime.now(timezone.utc) + timedelta(seconds=duration_seconds)
         self._closed = False
+        self.auction_id = auction_id
+        self.auction_card_ids = auction_card_ids or {}
+        self.last_bid_ids = {}  # player_uuid -> bid_id (for atomic refund on outbid)
 
         for p in players:
             rating = float(p["current_drating"])
@@ -248,6 +269,23 @@ class AuctionView(discord.ui.View):
                     print("  ✅ Auction close message sent.")
                 except discord.HTTPException as e:
                     print(f"  ⚠️ Failed to send auction close message: {e}")
+
+            # Finalize logs
+            if self.auction_id:
+                for p in self.players:
+                    card_id = self.auction_card_ids.get(p["uuid"])
+                    if not card_id:
+                        continue
+                    bidder = self.highest_bidders.get(p["uuid"])
+                    winner_id, winning_bid = (bidder[0], bidder[1]) if bidder else (None, None)
+                    try:
+                        await self.bot.db.finalize_auction_card(card_id, winner_id, winning_bid)
+                    except Exception as e:
+                        print(f"  ⚠️ Failed to finalize auction_card log: {e}")
+                try:
+                    await self.bot.db.finalize_auction(self.auction_id)
+                except Exception as e:
+                    print(f"  ⚠️ Failed to finalize auction log: {e}")
         except Exception as e:
             print(f"  ❌ Unexpected error during auction close: {e}")
         finally:
@@ -366,7 +404,28 @@ class Auction(commands.Cog):
         combined_image = await create_card_grid(player_images, cols=3)
         file = discord.File(fp=combined_image, filename="drop.png")
         duration_seconds = random.randint(7 * 60, 15 * 60)
-        view = AuctionView(self.bot, players, duration_seconds)
+
+        auction_id = None
+        auction_card_ids = {}
+        try:
+            auction_id = await self.bot.db.create_auction(duration_seconds)
+            for p in players:
+                rating = float(p["current_drating"])
+                rank_raw = p.get("current_rank")
+                rank = int(rank_raw) if rank_raw is not None else None
+                bv = calculate_bank_value(rating)
+                mb = calculate_min_bid(rating, rank_raw if rank_raw is not None else "N/A")
+                mi = calculate_min_increment(bv)
+                card_id = await self.bot.db.create_auction_card(
+                    auction_id, p["uuid"], rating, rank, bv, mb, mi,
+                )
+                auction_card_ids[p["uuid"]] = card_id
+        except Exception as e:
+            print(f"  ⚠️ Failed to log auction to DB: {e}")
+            auction_id = None
+            auction_card_ids = {}
+
+        view = AuctionView(self.bot, players, duration_seconds, auction_id, auction_card_ids)
         content = f"<@&{config.AUCTION_PING_ROLE_ID}> **{title}**\nBid below. One active bid per drop."
 
         channel = self.bot.get_channel(config.DROP_CHANNEL_ID)
