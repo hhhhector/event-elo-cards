@@ -108,7 +108,7 @@ def _render_kpi_chart(snapshots, scatter_rows) -> bytes | None:
                 name=rarity,
                 legendgroup=rarity,
                 showlegend=False,
-                marker=dict(color=color, size=5, opacity=0.35),
+                marker=dict(color=color, size=9, opacity=0.35),
                 hovertemplate="%{x|%H:%M}<br>WB/BV: %{y:.2f}<extra></extra>",
             ))
         if rarity in line_series:
@@ -118,25 +118,28 @@ def _render_kpi_chart(snapshots, scatter_rows) -> bytes | None:
                 mode="lines",
                 name=rarity,
                 legendgroup=rarity,
-                line=dict(color=color, width=2.5),
+                line=dict(color=color, width=5),
                 hovertemplate="%{x|%H:%M}<br>mean WB/BV: %{y:.3f}<extra></extra>",
             ))
 
     fig.add_hline(
         y=1.0,
-        line=dict(color="rgba(255,255,255,0.3)", width=1, dash="dash"),
+        line=dict(color="rgba(255,255,255,0.3)", width=2, dash="dash"),
     )
 
     fig.update_layout(
-        title="Winning Bid / Bank Value · 24h scatter + 6h rolling mean, by rarity",
-        xaxis_title="Time (UTC)",
-        yaxis_title="WB / BV",
-        yaxis=dict(range=[0.5, 1.5]),
+        title=dict(
+            text="Winning Bid / Bank Value · 24h scatter + 6h rolling mean, by rarity",
+            font=dict(size=28),
+        ),
+        xaxis=dict(title=dict(text="Time (UTC)", font=dict(size=20)), tickfont=dict(size=16)),
+        yaxis=dict(title=dict(text="WB / BV", font=dict(size=20)), tickfont=dict(size=16), range=[0.5, 1.5]),
         template="plotly_dark",
-        width=900,
-        height=450,
-        margin=dict(l=60, r=20, t=60, b=50),
-        legend=dict(orientation="h", y=-0.2),
+        width=1800,
+        height=900,
+        font=dict(size=16),
+        margin=dict(l=120, r=40, t=120, b=100),
+        legend=dict(orientation="h", y=-0.15, font=dict(size=18)),
     )
     return fig.to_image(format="png")
 

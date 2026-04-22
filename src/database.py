@@ -221,7 +221,18 @@ class Database:
             (SELECT COUNT(*) FROM discord_tcg.users) AS total_users,
             (SELECT COALESCE(SUM(coins), 0) FROM discord_tcg.users) AS total_coins,
             (SELECT COUNT(*) FROM discord_tcg.cards) AS total_cards,
-            (SELECT COALESCE(SUM(10000.0 * POWER(p.current_drating / 2200.0, 3) / 7.0), 0)
+            (SELECT COALESCE(SUM(
+                10000.0 * POWER(p.current_drating / 2200.0, 3) *
+                CASE
+                    WHEN p.current_rank IS NULL       THEN 1.0/7.0
+                    WHEN p.current_rank <= 10         THEN 0.30
+                    WHEN p.current_rank <= 100        THEN 0.22
+                    WHEN p.current_rank <= 250        THEN 0.18
+                    WHEN p.current_rank <= 500        THEN 0.15
+                    WHEN p.current_rank <= 1000       THEN 1.0/7.0
+                    ELSE 1.0/7.0
+                END
+             ), 0)
              FROM discord_tcg.cards c
              JOIN event_elo.players p ON c.player_uuid = p.uuid
              WHERE p.is_banned = FALSE) AS total_daily_yield,
@@ -267,11 +278,24 @@ class Database:
             await conn.execute(query, active)
 
     async def process_faucet_dividends(self):
+        # Tiered yield rates per rarity. Keep in sync with YIELD_RATES in
+        # src/utils/economy_utils.py.
         query = """
         WITH UserDividends AS (
             SELECT
                 c.owner_id,
-                (SUM(10000.0 * POWER(p.current_drating / 2200.0, 3)) / 7.0)::INT AS dividend
+                SUM(
+                    10000.0 * POWER(p.current_drating / 2200.0, 3) *
+                    CASE
+                        WHEN p.current_rank IS NULL       THEN 1.0/7.0
+                        WHEN p.current_rank <= 10         THEN 0.30
+                        WHEN p.current_rank <= 100        THEN 0.22
+                        WHEN p.current_rank <= 250        THEN 0.18
+                        WHEN p.current_rank <= 500        THEN 0.15
+                        WHEN p.current_rank <= 1000       THEN 1.0/7.0
+                        ELSE 1.0/7.0
+                    END
+                )::INT AS dividend
             FROM discord_tcg.cards c
             JOIN event_elo.players p ON c.player_uuid = p.uuid
             WHERE p.is_banned = FALSE

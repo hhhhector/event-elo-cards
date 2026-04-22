@@ -31,7 +31,7 @@ async def generate_card_image(stats: Dict[str, Any]) -> io.BytesIO:
         peak_rank = int(peak_rank)
 
     bank_value = calculate_bank_value(float_rating)
-    yield_value = calculate_yield_value(bank_value)
+    yield_value = calculate_yield_value(bank_value, rank)
 
     # Map database stats to API parameters
     params = {

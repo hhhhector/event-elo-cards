@@ -63,7 +63,7 @@ class Inventory(commands.Cog):
             rarity = get_rarity(c["current_rank"])
             emoji = RARITY_EMOJI[rarity]
             bv = calculate_bank_value(float(c["current_drating"]))
-            yield_val = calculate_yield_value(bv)
+            yield_val = calculate_yield_value(bv, c["current_rank"])
             total_yield += yield_val
             lines.append(
                 f"{emoji} **{c['current_name']}** `{rating}` · ⛃ {bv:,} · ⛃ {yield_val:,}/day"
@@ -132,7 +132,7 @@ class Inventory(commands.Cog):
         rarity = get_rarity(rank)
         color = discord.Color(RARITY_COLOR[rarity])
         bv = calculate_bank_value(float(target_card["current_drating"]))
-        yield_val = calculate_yield_value(bv)
+        yield_val = calculate_yield_value(bv, rank)
         embed = discord.Embed(
             title=f"{target_card['current_name']}",
             description=(

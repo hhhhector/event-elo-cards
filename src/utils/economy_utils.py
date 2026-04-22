@@ -1,13 +1,25 @@
 from typing import Any
 
+# Tiered daily dividend rate per rarity. Keep in sync with the CASE expressions
+# in src/database.py (process_faucet_dividends, get_economy_stats).
+YIELD_RATES = {
+    "X": 0.30,
+    "S": 0.22,
+    "A": 0.18,
+    "B": 0.15,
+    "C": 1 / 7,
+    "D": 1 / 7,
+}
+
+
 def calculate_bank_value(rating: float) -> int:
     """
     Formula: 10000 * (rating / 2200)^4
     """
     return int(10000 * (rating / 2200)**3)
 
-def calculate_yield_value(bank_value: int) -> int:
-    return int(bank_value / 7)
+def calculate_yield_value(bank_value: int, rank: Any) -> int:
+    return int(bank_value * YIELD_RATES[get_rarity(rank)])
 
 def get_rarity(rank: Any) -> str:
     """Determine rarity based on rank threshold."""
