@@ -53,9 +53,7 @@ class Inventory(commands.Cog):
 
         cards = await self.bot.db.get_user_cards(interaction.user.id)
         if not cards:
-            return await interaction.followup.send(
-                "You have no cards.", ephemeral=True
-            )
+            return await interaction.followup.send("You have no cards.", ephemeral=True)
 
         lines = []
         total_yield = 0
@@ -67,7 +65,7 @@ class Inventory(commands.Cog):
             yield_val = calculate_yield_value(bv, c["current_rank"])
             total_yield += yield_val
             hold = sell_hold_remaining(c["acquired_at"])
-            hold_str = f" · ⏲ {hold}" if hold else ""
+            hold_str = f" · ⧗ {hold}" if hold else ""
             lines.append(
                 f"{emoji} **{c['current_name']}** `{rating}` · ⛃ {bv:,} · ⛃ {yield_val:,}/day{hold_str}"
             )
@@ -82,8 +80,9 @@ class Inventory(commands.Cog):
             description=description,
             color=discord.Color.blue(),
         )
-        embed.set_footer(text=f"{len(cards)}/{roster_cap} cards · ⛃ {balance:,} · ⛃ {total_yield:,}/day")
-
+        embed.set_footer(
+            text=f"{len(cards)}/{roster_cap} cards · ⛃ {balance:,} · ⛃ {total_yield:,}/day"
+        )
 
         await interaction.followup.send(embed=embed)
 
@@ -102,7 +101,8 @@ class Inventory(commands.Cog):
             uuid.UUID(card_id)
         except ValueError:
             return await interaction.response.send_message(
-                "Invalid card ID. Use the autocomplete dropdown to select a card.", ephemeral=True
+                "Invalid card ID. Use the autocomplete dropdown to select a card.",
+                ephemeral=True,
             )
 
         await interaction.response.defer()
@@ -137,7 +137,7 @@ class Inventory(commands.Cog):
         bv = calculate_bank_value(float(target_card["current_drating"]))
         yield_val = calculate_yield_value(bv, rank)
         hold = sell_hold_remaining(target_card["acquired_at"])
-        status_str = f"Not Sellable (⏲ {hold})" if hold else "Sellable"
+        status_str = f"Not Sellable (⧗ {hold})" if hold else "Sellable"
         embed = discord.Embed(
             title=f"{target_card['current_name']}",
             description=(
