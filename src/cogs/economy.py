@@ -106,7 +106,8 @@ class Economy(commands.Cog):
         try:
             rank_raw = card.get('current_rank')
             rank = int(rank_raw) if rank_raw is not None else None
-            held_seconds = int((now - acquired_at).total_seconds())
+            acquired_at = card['acquired_at'].replace(tzinfo=timezone.utc)
+            held_seconds = int((datetime.now(timezone.utc) - acquired_at).total_seconds())
             await self.bot.db.log_sale(
                 interaction.user.id,
                 card['player_uuid'],
