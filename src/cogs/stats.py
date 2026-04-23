@@ -4,6 +4,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 
 import discord
+from discord import app_commands
 from discord.ext import commands, tasks
 
 from src import config
@@ -238,6 +239,24 @@ class Stats(commands.Cog):
             await self._update_messages()
         except Exception as e:
             print(f"❌ Stats loop error: {e}")
+
+    @app_commands.command(name="rank", description="See your leaderboard ranks")
+    async def rank(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        ranks = await self.bot.db.get_user_ranks(interaction.user.id)
+        if ranks is None:
+            return await interaction.followup.send("You must run /register first.", ephemeral=True)
+
+        total = ranks["total_users"]
+
+        def fmt_rank(r) -> str:
+            return f"#{r:,} / {total:,}" if r is not None else f"Unranked / {total:,}"
+
+        embed = discord.Embed(title=f"{interaction.user.display_name}'s Ranks", color=discord.Color.gold())
+        embed.add_field(name="Coins",     value=fmt_rank(ranks["coins_rank"]),     inline=True)
+        embed.add_field(name="Portfolio", value=fmt_rank(ranks["portfolio_rank"]), inline=True)
+        embed.add_field(name="Combined",  value=fmt_rank(ranks["combined_rank"]),  inline=True)
+        await interaction.followup.send(embed=embed)
 
     @stats_loop.before_loop
     async def before_stats_loop(self):

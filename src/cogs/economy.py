@@ -4,7 +4,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 from src import config
-from src.utils.economy_utils import calculate_bank_value
+from src.utils.economy_utils import calculate_bank_value, sell_hold_remaining
 from src.utils.autocomplete import card_autocomplete
 
 STARTING_BALANCE = 300
@@ -90,15 +90,10 @@ class Economy(commands.Cog):
         if card is None:
             return await interaction.followup.send("You do not own a card with that ID.", ephemeral=True)
 
-        acquired_at = card['acquired_at'].replace(tzinfo=timezone.utc)
-        hold_until = acquired_at + timedelta(hours=8)
-        now = datetime.now(timezone.utc)
-        if now < hold_until:
-            remaining = hold_until - now
-            hours, remainder = divmod(int(remaining.total_seconds()), 3600)
-            minutes = remainder // 60
+        hold_remaining = sell_hold_remaining(card['acquired_at'])
+        if hold_remaining:
             return await interaction.followup.send(
-                f"Cards must be held for 8 hours before selling. Available in {hours}h {minutes}m.",
+                f"Cards must be held for 8 hours before selling. Available in {hold_remaining}.",
                 ephemeral=True,
             )
 

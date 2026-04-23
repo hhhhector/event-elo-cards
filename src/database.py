@@ -476,6 +476,48 @@ class Database:
         async with self.pool.acquire() as conn:
             return await conn.fetch(query, hours)
 
+    async def get_user_ranks(self, discord_id: int) -> Optional[asyncpg.Record]:
+        """Returns coins_rank, portfolio_rank (null if no cards), combined_rank, total_users."""
+        query = """
+        WITH all_users AS (
+            SELECT discord_id, coins FROM discord_tcg.users
+        ),
+        portfolio_vals AS (
+            SELECT c.owner_id AS discord_id,
+                   SUM(10000.0 * POWER(p.current_drating / 2200.0, 3)) AS portfolio
+            FROM discord_tcg.cards c
+            JOIN event_elo.players p ON c.player_uuid = p.uuid
+            WHERE p.is_banned = FALSE
+            GROUP BY c.owner_id
+        ),
+        combined_vals AS (
+            SELECT u.discord_id,
+                   u.coins + COALESCE(pv.portfolio, 0) AS combined
+            FROM all_users u
+            LEFT JOIN portfolio_vals pv ON pv.discord_id = u.discord_id
+        ),
+        coins_ranked AS (
+            SELECT discord_id, RANK() OVER (ORDER BY coins DESC) AS rank FROM all_users
+        ),
+        portfolio_ranked AS (
+            SELECT discord_id, RANK() OVER (ORDER BY portfolio DESC) AS rank FROM portfolio_vals
+        ),
+        combined_ranked AS (
+            SELECT discord_id, RANK() OVER (ORDER BY combined DESC) AS rank FROM combined_vals
+        )
+        SELECT
+            cr.rank AS coins_rank,
+            pr.rank AS portfolio_rank,
+            cor.rank AS combined_rank,
+            (SELECT COUNT(*) FROM discord_tcg.users) AS total_users
+        FROM coins_ranked cr
+        LEFT JOIN portfolio_ranked pr ON pr.discord_id = cr.discord_id
+        LEFT JOIN combined_ranked cor ON cor.discord_id = cr.discord_id
+        WHERE cr.discord_id = $1
+        """
+        async with self.pool.acquire() as conn:
+            return await conn.fetchrow(query, str(discord_id))
+
     async def get_winning_bid_scatter(self, hours: int = 24) -> List[asyncpg.Record]:
         """One row per closed auction with a winner in the window."""
         query = """

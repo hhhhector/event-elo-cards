@@ -435,7 +435,7 @@ class Auction(commands.Cog):
             auction_card_ids = {}
 
         view = AuctionView(self.bot, players, duration_seconds, auction_id, auction_card_ids)
-        content = f"<@&{config.AUCTION_PING_ROLE_ID}> **{title}**\nBid below. One active bid per drop."
+        content = f"<@&{config.AUCTION_PING_ROLE_ID}> **{title}**\nBid below. One active bid per drop. Bank value and yield shown top-right of each card."
 
         channel = self.bot.get_channel(config.DROP_CHANNEL_ID)
         if not channel:

@@ -10,6 +10,7 @@ from src.utils.economy_utils import (
     calculate_bank_value,
     calculate_yield_value,
     get_rarity,
+    sell_hold_remaining,
 )
 
 RARITY_EMOJI = {
@@ -65,8 +66,10 @@ class Inventory(commands.Cog):
             bv = calculate_bank_value(float(c["current_drating"]))
             yield_val = calculate_yield_value(bv, c["current_rank"])
             total_yield += yield_val
+            hold = sell_hold_remaining(c["acquired_at"])
+            hold_str = f" · ⏲ {hold}" if hold else ""
             lines.append(
-                f"{emoji} **{c['current_name']}** `{rating}` · ⛃ {bv:,} · ⛃ {yield_val:,}/day"
+                f"{emoji} **{c['current_name']}** `{rating}` · ⛃ {bv:,} · ⛃ {yield_val:,}/day{hold_str}"
             )
 
         description = "\n".join(lines)
@@ -133,12 +136,15 @@ class Inventory(commands.Cog):
         color = discord.Color(RARITY_COLOR[rarity])
         bv = calculate_bank_value(float(target_card["current_drating"]))
         yield_val = calculate_yield_value(bv, rank)
+        hold = sell_hold_remaining(target_card["acquired_at"])
+        status_str = f"Not Sellable (⏲ {hold})" if hold else "Sellable"
         embed = discord.Embed(
             title=f"{target_card['current_name']}",
             description=(
                 f"**Rating:** {rating}\n"
                 f"**Bank Value:** ⛃ {bv:,}\n"
                 f"**Daily Yield:** ⛃ {yield_val:,}\n"
+                f"**Status:** {status_str}\n"
                 f"**Card ID:** `{str(target_card['card_id'])[:8]}…`\n"
                 f"**Owner:** <@{interaction.user.id}>"
             ),

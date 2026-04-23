@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Optional
 
 # Tiered daily dividend rate per rarity. Keep in sync with the CASE expressions
 # in src/database.py (process_faucet_dividends, get_economy_stats).
@@ -61,3 +61,17 @@ def calculate_min_increment(bank_value: int) -> int:
     Increment is 5% of Bank Value.
     """
     return max(1, int(bank_value * 0.05))
+
+HOLD_HOURS = 8
+
+def sell_hold_remaining(acquired_at) -> Optional[str]:
+    """Returns 'H:MM' string if still in the hold window, None if sellable."""
+    from datetime import datetime, timezone, timedelta
+    now = datetime.now(timezone.utc)
+    hold_until = acquired_at.replace(tzinfo=timezone.utc) + timedelta(hours=HOLD_HOURS)
+    if now >= hold_until:
+        return None
+    remaining = hold_until - now
+    total_minutes = int(remaining.total_seconds()) // 60
+    hours, minutes = divmod(total_minutes, 60)
+    return f"{hours}:{minutes:02d}"
