@@ -252,10 +252,12 @@ class Stats(commands.Cog):
         def fmt_rank(r) -> str:
             return f"#{r:,} / {total:,}" if r is not None else f"Unranked / {total:,}"
 
-        embed = discord.Embed(title=f"{interaction.user.display_name}'s Ranks", color=discord.Color.gold())
-        embed.add_field(name="Coins",     value=fmt_rank(ranks["coins_rank"]),     inline=True)
-        embed.add_field(name="Portfolio", value=fmt_rank(ranks["portfolio_rank"]), inline=True)
-        embed.add_field(name="Combined",  value=fmt_rank(ranks["combined_rank"]),  inline=True)
+        lines = (
+            f"**Coins:** {fmt_rank(ranks['coins_rank'])}\n"
+            f"**Portfolio:** {fmt_rank(ranks['portfolio_rank'])}\n"
+            f"**Combined:** {fmt_rank(ranks['combined_rank'])}"
+        )
+        embed = discord.Embed(title=f"{interaction.user.display_name}'s Ranks", description=lines, color=discord.Color.gold())
         await interaction.followup.send(embed=embed)
 
     @stats_loop.before_loop
