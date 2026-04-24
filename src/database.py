@@ -1,4 +1,5 @@
 import asyncpg
+from datetime import datetime, timezone, timedelta
 from typing import Optional, List
 
 class Database:
@@ -475,6 +476,99 @@ class Database:
         """
         async with self.pool.acquire() as conn:
             return await conn.fetch(query, hours)
+
+    # --- Trades ---
+
+    async def create_trade(
+        self,
+        proposer_id: int,
+        receiver_id: int,
+        proposer_card_id: str,
+        proposer_player_uuid: str,
+        receiver_card_id: str,
+        receiver_player_uuid: str,
+    ) -> str:
+        query = """
+        INSERT INTO discord_tcg.trades
+            (proposer_id, receiver_id, proposer_card_id, proposer_player_uuid,
+             receiver_card_id, receiver_player_uuid)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING id
+        """
+        async with self.pool.acquire() as conn:
+            return str(await conn.fetchval(
+                query,
+                str(proposer_id), str(receiver_id),
+                proposer_card_id, proposer_player_uuid,
+                receiver_card_id, receiver_player_uuid,
+            ))
+
+    async def find_and_execute_trade(
+        self,
+        proposer_id: int,
+        receiver_id: int,
+        proposer_card_id: str,
+        receiver_card_id: str,
+    ) -> str:
+        """
+        Atomically find a matching pending trade and execute it.
+        Returns: 'success' | 'not_found' | 'expired' | 'card_moved'
+        """
+        async with self.pool.acquire() as conn:
+            async with conn.transaction():
+                trade = await conn.fetchrow(
+                    """
+                    SELECT id, proposed_at
+                    FROM discord_tcg.trades
+                    WHERE proposer_id = $1
+                      AND receiver_id = $2
+                      AND proposer_card_id = $3
+                      AND receiver_card_id = $4
+                      AND resolved = FALSE
+                    ORDER BY proposed_at DESC
+                    LIMIT 1
+                    FOR UPDATE
+                    """,
+                    str(proposer_id), str(receiver_id),
+                    proposer_card_id, receiver_card_id,
+                )
+
+                if trade is None:
+                    return "not_found"
+
+                proposed_at = trade["proposed_at"].replace(tzinfo=timezone.utc)
+                if datetime.now(timezone.utc) - proposed_at > timedelta(minutes=5):
+                    return "expired"
+
+                # Verify ownership is still correct inside the transaction
+                proposer_owns = await conn.fetchval(
+                    "SELECT COUNT(*) FROM discord_tcg.cards WHERE id = $1 AND owner_id = $2",
+                    proposer_card_id, str(proposer_id),
+                )
+                receiver_owns = await conn.fetchval(
+                    "SELECT COUNT(*) FROM discord_tcg.cards WHERE id = $1 AND owner_id = $2",
+                    receiver_card_id, str(receiver_id),
+                )
+
+                if not proposer_owns or not receiver_owns:
+                    return "card_moved"
+
+                # Swap ownership
+                await conn.execute(
+                    "UPDATE discord_tcg.cards SET owner_id = $1 WHERE id = $2",
+                    str(receiver_id), proposer_card_id,
+                )
+                await conn.execute(
+                    "UPDATE discord_tcg.cards SET owner_id = $1 WHERE id = $2",
+                    str(proposer_id), receiver_card_id,
+                )
+
+                await conn.execute(
+                    "UPDATE discord_tcg.trades SET resolved = TRUE, resolved_at = NOW() WHERE id = $1",
+                    trade["id"],
+                )
+
+                return "success"
 
     async def get_user_ranks(self, discord_id: int) -> Optional[asyncpg.Record]:
         """Returns coins_rank, portfolio_rank (null if no cards), combined_rank, total_users."""
