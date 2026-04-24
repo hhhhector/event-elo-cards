@@ -13,4 +13,4 @@ STATS_CHANNEL_ID = int(os.getenv("STATS_CHANNEL_ID"))
 AUCTION_PING_ROLE_ID = int(os.getenv("AUCTION_PING_ROLE_ID"))
 
 # Temporary beta whitelist for /trade. Set to None to open to everyone.
-TRADE_BETA_USERS: set[int] | None = {173501667109502978, 430041165816004618}
+TRADE_BETA_USERS: set[int] | None = None
