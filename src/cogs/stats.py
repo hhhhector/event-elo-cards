@@ -11,6 +11,7 @@ from src import config
 
 try:
     import plotly.graph_objects as go
+
     PLOTLY_AVAILABLE = True
 except ImportError:
     PLOTLY_AVAILABLE = False
@@ -47,9 +48,17 @@ def build_embeds(leaderboard_data, economy_stats, last_updated: str):
         title="Leaderboard",
         color=discord.Color.gold(),
     )
-    leaderboard.add_field(name="Coins", value=leaderboard_field(coins_rows, "coins"), inline=True)
-    leaderboard.add_field(name="Portfolio", value=leaderboard_field(portfolio_rows, "portfolio"), inline=True)
-    leaderboard.add_field(name="Combined", value=leaderboard_field(combined_rows, "combined"), inline=True)
+    leaderboard.add_field(
+        name="Coins", value=leaderboard_field(coins_rows, "coins"), inline=True
+    )
+    leaderboard.add_field(
+        name="Portfolio",
+        value=leaderboard_field(portfolio_rows, "portfolio"),
+        inline=True,
+    )
+    leaderboard.add_field(
+        name="Combined", value=leaderboard_field(combined_rows, "combined"), inline=True
+    )
     leaderboard.set_footer(text=f"Updated {last_updated} UTC")
 
     s = economy_stats
@@ -66,10 +75,18 @@ def build_embeds(leaderboard_data, economy_stats, last_updated: str):
         title="Economy",
         color=discord.Color.blurple(),
     )
-    economy.add_field(name="Registered Players", value=fmt(s["total_users"]), inline=True)
+    economy.add_field(
+        name="Registered Players", value=fmt(s["total_users"]), inline=True
+    )
     economy.add_field(name="Total Cards", value=fmt(s["total_cards"]), inline=True)
-    economy.add_field(name="Coins in Circulation", value=f"⛃ {fmt(s['total_coins'])}", inline=True)
-    economy.add_field(name="Daily Yield (all cards)", value=f"⛃ {fmt(s['total_daily_yield'])}/day", inline=True)
+    economy.add_field(
+        name="Coins in Circulation", value=f"⛃ {fmt(s['total_coins'])}", inline=True
+    )
+    economy.add_field(
+        name="Daily Yield (all cards)",
+        value=f"⛃ {fmt(s['total_daily_yield'])}/day",
+        inline=True,
+    )
     economy.add_field(name="Cards", value=rarity_list, inline=False)
     economy.set_footer(text=f"Updated {last_updated} UTC")
 
@@ -102,26 +119,30 @@ def _render_kpi_chart(snapshots, scatter_rows) -> bytes | None:
     for rarity in RARITY_ORDER:
         color = RARITY_COLOR_HEX[rarity]
         if rarity in dot_series:
-            fig.add_trace(go.Scatter(
-                x=dot_series[rarity]["x"],
-                y=dot_series[rarity]["y"],
-                mode="markers",
-                name=rarity,
-                legendgroup=rarity,
-                showlegend=False,
-                marker=dict(color=color, size=9, opacity=0.35),
-                hovertemplate="%{x|%H:%M}<br>WB/BV: %{y:.2f}<extra></extra>",
-            ))
+            fig.add_trace(
+                go.Scatter(
+                    x=dot_series[rarity]["x"],
+                    y=dot_series[rarity]["y"],
+                    mode="markers",
+                    name=rarity,
+                    legendgroup=rarity,
+                    showlegend=False,
+                    marker=dict(color=color, size=9, opacity=0.35),
+                    hovertemplate="%{x|%H:%M}<br>WB/BV: %{y:.2f}<extra></extra>",
+                )
+            )
         if rarity in line_series:
-            fig.add_trace(go.Scatter(
-                x=line_series[rarity]["x"],
-                y=line_series[rarity]["y"],
-                mode="lines",
-                name=rarity,
-                legendgroup=rarity,
-                line=dict(color=color, width=5),
-                hovertemplate="%{x|%H:%M}<br>mean WB/BV: %{y:.3f}<extra></extra>",
-            ))
+            fig.add_trace(
+                go.Scatter(
+                    x=line_series[rarity]["x"],
+                    y=line_series[rarity]["y"],
+                    mode="lines",
+                    name=rarity,
+                    legendgroup=rarity,
+                    line=dict(color=color, width=5),
+                    hovertemplate="%{x|%H:%M}<br>mean WB/BV: %{y:.3f}<extra></extra>",
+                )
+            )
 
     fig.add_hline(
         y=1.0,
@@ -133,11 +154,15 @@ def _render_kpi_chart(snapshots, scatter_rows) -> bytes | None:
             text="Winning Bid / Bank Value · 24h scatter + 6h rolling mean, by rarity",
             font=dict(size=28),
         ),
-        xaxis=dict(title=dict(text="Time (UTC)", font=dict(size=20)), tickfont=dict(size=16)),
-        yaxis=dict(title=dict(text="WB / BV", font=dict(size=20)), tickfont=dict(size=16), range=[0.5, 1.5]),
+        xaxis=dict(
+            title=dict(text="Time (UTC)", font=dict(size=20)), tickfont=dict(size=16)
+        ),
+        yaxis=dict(
+            title=dict(text="WB / BV", font=dict(size=20)), tickfont=dict(size=16)
+        ),
         template="plotly_dark",
         width=1800,
-        height=900,
+        height=1200,
         font=dict(size=16),
         margin=dict(l=120, r=40, t=120, b=100),
         legend=dict(orientation="h", y=-0.15, font=dict(size=18)),
@@ -188,29 +213,41 @@ class Stats(commands.Cog):
         chart_bytes = await self._build_chart_bytes()
 
         now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
-        leaderboard_embed, economy_embed = build_embeds(leaderboard_data, economy_stats, now)
+        leaderboard_embed, economy_embed = build_embeds(
+            leaderboard_data, economy_stats, now
+        )
 
         if chart_bytes:
             economy_embed.set_image(url="attachment://kpi_chart.png")
 
         def new_chart_file():
-            return discord.File(io.BytesIO(chart_bytes), filename="kpi_chart.png") if chart_bytes else None
+            return (
+                discord.File(io.BytesIO(chart_bytes), filename="kpi_chart.png")
+                if chart_bytes
+                else None
+            )
 
         if self.leaderboard_messages:
             try:
                 await self.leaderboard_messages[0].edit(embed=leaderboard_embed)
                 chart_file = new_chart_file()
                 if chart_file is not None:
-                    await self.leaderboard_messages[1].edit(embed=economy_embed, attachments=[chart_file])
+                    await self.leaderboard_messages[1].edit(
+                        embed=economy_embed, attachments=[chart_file]
+                    )
                 else:
-                    await self.leaderboard_messages[1].edit(embed=economy_embed, attachments=[])
+                    await self.leaderboard_messages[1].edit(
+                        embed=economy_embed, attachments=[]
+                    )
                 print("📊 Stats messages updated.")
                 return
             except discord.NotFound:
                 print("⚠️ Stats messages were deleted. Will repost.")
                 self.leaderboard_messages = []
             except discord.HTTPException as e:
-                print(f"⚠️ Failed to edit stats messages (transient): {e}. Skipping this cycle.")
+                print(
+                    f"⚠️ Failed to edit stats messages (transient): {e}. Skipping this cycle."
+                )
                 return
 
         # Post fresh messages and store IDs
@@ -245,7 +282,9 @@ class Stats(commands.Cog):
         await interaction.response.defer()
         ranks = await self.bot.db.get_user_ranks(interaction.user.id)
         if ranks is None:
-            return await interaction.followup.send("You must run /register first.", ephemeral=True)
+            return await interaction.followup.send(
+                "You must run /register first.", ephemeral=True
+            )
 
         total = ranks["total_users"]
 
@@ -257,7 +296,11 @@ class Stats(commands.Cog):
             f"**Portfolio:** {fmt_rank(ranks['portfolio_rank'])}\n"
             f"**Combined:** {fmt_rank(ranks['combined_rank'])}"
         )
-        embed = discord.Embed(title=f"{interaction.user.display_name}'s Ranks", description=lines, color=discord.Color.gold())
+        embed = discord.Embed(
+            title=f"{interaction.user.display_name}'s Ranks",
+            description=lines,
+            color=discord.Color.gold(),
+        )
         await interaction.followup.send(embed=embed)
 
     @stats_loop.before_loop
@@ -276,7 +319,14 @@ class Stats(commands.Cog):
                 msg1 = await channel.fetch_message(msg_id)
                 # Economy embed is always the message right after — fetch last 2 messages
                 messages = [m async for m in channel.history(limit=5)]
-                msg2 = next((m for m in messages if m.id != msg_id and m.author == self.bot.user), None)
+                msg2 = next(
+                    (
+                        m
+                        for m in messages
+                        if m.id != msg_id and m.author == self.bot.user
+                    ),
+                    None,
+                )
                 if msg2:
                     self.leaderboard_messages = [msg1, msg2]
                     print(f"📊 Recovered stats messages on startup.")
