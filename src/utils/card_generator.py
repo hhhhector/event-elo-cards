@@ -4,7 +4,11 @@ from typing import Any, Dict
 
 import aiohttp
 
-from src.utils.economy_utils import calculate_bank_value, calculate_yield_value, get_rarity
+from src.utils.economy_utils import (
+    calculate_bank_value,
+    calculate_yield_value,
+    get_rarity,
+)
 
 API_BASE_URL = "https://event-elo-satori.vercel.app/api/generate-card"
 
@@ -16,7 +20,7 @@ async def generate_card_image(stats: Dict[str, Any]) -> io.BytesIO:
     raw_rating = stats.get("current_drating")
     if raw_rating is None:
         raise ValueError("Missing 'current_drating' in player statistics.")
-    
+
     float_rating = float(raw_rating)
     rating = int(float_rating)
     rank = stats.get("current_rank", "N/A")
@@ -58,12 +62,16 @@ async def generate_card_image(stats: Dict[str, Any]) -> io.BytesIO:
             data = await resp.read()
             return io.BytesIO(data)
 
-async def create_card_grid(image_buffers: list[io.BytesIO], cols: int = 3) -> io.BytesIO:
+
+async def create_card_grid(
+    image_buffers: list[io.BytesIO], cols: int = 4
+) -> io.BytesIO:
     """
     Stitches multiple card images together into a grid (default 3 columns).
     """
-    from PIL import Image
     import math
+
+    from PIL import Image
 
     images = [Image.open(buffer) for buffer in image_buffers]
     if not images:
@@ -71,19 +79,19 @@ async def create_card_grid(image_buffers: list[io.BytesIO], cols: int = 3) -> io
 
     card_w = images[0].width
     card_h = images[0].height
-    
+
     rows = math.ceil(len(images) / cols)
-    
+
     grid_w = cols * card_w
     grid_h = rows * card_h
-    
+
     combined = Image.new("RGBA", (grid_w, grid_h))
-    
+
     for index, img in enumerate(images):
         x = (index % cols) * card_w
         y = (index // cols) * card_h
         combined.paste(img, (x, y))
-    
+
     out_buffer = io.BytesIO()
     combined.save(out_buffer, format="PNG")
     out_buffer.seek(0)

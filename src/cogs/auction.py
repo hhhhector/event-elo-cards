@@ -1,6 +1,6 @@
 import asyncio
 import random
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 
 import discord
 from discord import app_commands
@@ -14,15 +14,15 @@ from src.utils.economy_utils import (
     calculate_min_increment,
 )
 
-
 HOURLY_AVG_MINUTES = {
-    **{h: 50  for h in range(6, 12)},   # 06-12 dead
-    **{h: 20  for h in range(12, 16)},  # 12-16 EU waking
-    **{h: 12  for h in range(16, 20)},  # 16-20 EU peak, NA arriving
-    **{h: 5   for h in range(20, 24)},  # 20-00 peak overlap
-    **{h: 12  for h in range(0, 4)},    # 00-04 EU late, NA prime
-    **{h: 20  for h in range(4, 6)},    # 04-06 NA winding down
+    **{h: 50 for h in range(6, 12)},  # 06-12 dead
+    **{h: 20 for h in range(12, 16)},  # 12-16 EU waking
+    **{h: 12 for h in range(16, 20)},  # 16-20 EU peak, NA arriving
+    **{h: 5 for h in range(20, 24)},  # 20-00 peak overlap
+    **{h: 12 for h in range(0, 4)},  # 00-04 EU late, NA prime
+    **{h: 20 for h in range(4, 6)},  # 04-06 NA winding down
 }
+
 
 def next_drop_delta_seconds() -> int:
     hour = datetime.now(timezone.utc).hour
@@ -31,7 +31,6 @@ def next_drop_delta_seconds() -> int:
     max_minutes = avg * 2
     seconds = random.expovariate(1 / (avg * 60))
     return int(max(min_minutes * 60, min(max_minutes * 60, seconds)))
-
 
 
 class BidModal(discord.ui.Modal):
@@ -77,7 +76,9 @@ class BidModal(discord.ui.Modal):
                 )
             await self._process_bid(interaction, user_id, bid_amount)
 
-    async def _process_bid(self, interaction: discord.Interaction, user_id: int, bid_amount: int):
+    async def _process_bid(
+        self, interaction: discord.Interaction, user_id: int, bid_amount: int
+    ):
         # Rule Enforcement: ONE card per user in this drop
         for p_uuid, (u_id, _) in self.auction_view.highest_bidders.items():
             if u_id == user_id and p_uuid != self.player_uuid:
@@ -137,7 +138,9 @@ class BidModal(discord.ui.Modal):
                     await self.bot.db.update_user_coins(prev_user_id, prev_bid)
             else:
                 await self.bot.db.update_user_coins(prev_user_id, prev_bid)
-            print(f"  ↩️ Refunded ⛃ {prev_bid:,} to user {prev_user_id} (outbid on {self.player_name})")
+            print(
+                f"  ↩️ Refunded ⛃ {prev_bid:,} to user {prev_user_id} (outbid on {self.player_name})"
+            )
             prev_user = self.bot.get_user(prev_user_id)
             if prev_user:
                 try:
@@ -159,7 +162,9 @@ class BidModal(discord.ui.Modal):
         auction_card_id = self.auction_view.auction_card_ids.get(self.player_uuid)
         if auction_card_id:
             try:
-                new_bid_id = await self.bot.db.log_bid(auction_card_id, user_id, bid_amount)
+                new_bid_id = await self.bot.db.log_bid(
+                    auction_card_id, user_id, bid_amount
+                )
                 self.auction_view.last_bid_ids[self.player_uuid] = new_bid_id
             except Exception as e:
                 print(f"  ⚠️ Failed to log bid: {e}")
@@ -191,7 +196,14 @@ class BidModal(discord.ui.Modal):
 
 
 class AuctionView(discord.ui.View):
-    def __init__(self, bot, players, duration_seconds: int, auction_id=None, auction_card_ids=None):
+    def __init__(
+        self,
+        bot,
+        players,
+        duration_seconds: int,
+        auction_id=None,
+        auction_card_ids=None,
+    ):
         super().__init__(timeout=duration_seconds)
         self.bot = bot
         self.players = players
@@ -227,9 +239,13 @@ class AuctionView(discord.ui.View):
     def make_callback(self, player_uuid, player_name):
         async def callback(interaction: discord.Interaction):
             if datetime.now(timezone.utc) > self.deadline:
-                return await interaction.response.send_message("This auction has ended.", ephemeral=True)
+                return await interaction.response.send_message(
+                    "This auction has ended.", ephemeral=True
+                )
             balance = await self.bot.db.get_user_coins(interaction.user.id) or 0
-            modal = BidModal(self.bot, player_uuid, player_name, self, int(float(balance)))
+            modal = BidModal(
+                self.bot, player_uuid, player_name, self, int(float(balance))
+            )
             await interaction.response.send_modal(modal)
 
         return callback
@@ -243,7 +259,9 @@ class AuctionView(discord.ui.View):
         for lock in self.bid_locks.values():
             async with lock:
                 pass
-        print(f"⏰ Auction timed out. Bids placed: {len(self.highest_bidders)}/{len(self.players)} cards.")
+        print(
+            f"⏰ Auction timed out. Bids placed: {len(self.highest_bidders)}/{len(self.players)} cards."
+        )
         try:
             for child in self.children:
                 child.disabled = True
@@ -251,13 +269,21 @@ class AuctionView(discord.ui.View):
             winners_summary = []
             for player_uuid, (user_id, bid_amount) in self.highest_bidders.items():
                 player_name = next(
-                    (p["current_name"] for p in self.players if p["uuid"] == player_uuid),
+                    (
+                        p["current_name"]
+                        for p in self.players
+                        if p["uuid"] == player_uuid
+                    ),
                     "Unknown",
                 )
-                print(f"  → Awarding {player_name} to user {user_id} for ⛃ {bid_amount:,}")
+                print(
+                    f"  → Awarding {player_name} to user {user_id} for ⛃ {bid_amount:,}"
+                )
                 try:
                     await self.bot.db.add_card_to_user(user_id, player_uuid)
-                    winners_summary.append(f"<@{user_id}> won {player_name} for ⛃ {bid_amount:,}")
+                    winners_summary.append(
+                        f"<@{user_id}> won {player_name} for ⛃ {bid_amount:,}"
+                    )
                     print(f"    ✅ Card awarded.")
                 except Exception as e:
                     print(f"    ❌ Failed to award card: {e}")
@@ -285,9 +311,13 @@ class AuctionView(discord.ui.View):
                     if not card_id:
                         continue
                     bidder = self.highest_bidders.get(p["uuid"])
-                    winner_id, winning_bid = (bidder[0], bidder[1]) if bidder else (None, None)
+                    winner_id, winning_bid = (
+                        (bidder[0], bidder[1]) if bidder else (None, None)
+                    )
                     try:
-                        await self.bot.db.finalize_auction_card(card_id, winner_id, winning_bid)
+                        await self.bot.db.finalize_auction_card(
+                            card_id, winner_id, winning_bid
+                        )
                     except Exception as e:
                         print(f"  ⚠️ Failed to finalize auction_card log: {e}")
                 try:
@@ -319,7 +349,9 @@ class Auction(commands.Cog):
     def cog_unload(self):
         self.drop_loop.cancel()
 
-    @app_commands.command(name="pingme", description="Toggle auction drop notifications")
+    @app_commands.command(
+        name="pingme", description="Toggle auction drop notifications"
+    )
     async def pingme(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         drop_channel = self.bot.get_channel(config.DROP_CHANNEL_ID)
@@ -358,7 +390,7 @@ class Auction(commands.Cog):
 
     @tasks.loop(minutes=1)
     async def drop_loop(self):
-        if getattr(self.bot, 'db', None) is None:
+        if getattr(self.bot, "db", None) is None:
             return
         state = await self.bot.db.get_system_state()
         if not state:
@@ -410,7 +442,7 @@ class Auction(commands.Cog):
             player_images.append(img_buffer)
             print(f"    ✅ Image generated: {p['current_name']}")
 
-        combined_image = await create_card_grid(player_images, cols=3)
+        combined_image = await create_card_grid(player_images, cols=4)
         file = discord.File(fp=combined_image, filename="drop.png")
         duration_seconds = random.randint(7 * 60, 15 * 60)
 
@@ -423,10 +455,18 @@ class Auction(commands.Cog):
                 rank_raw = p.get("current_rank")
                 rank = int(rank_raw) if rank_raw is not None else None
                 bv = calculate_bank_value(rating)
-                mb = calculate_min_bid(rating, rank_raw if rank_raw is not None else "N/A")
+                mb = calculate_min_bid(
+                    rating, rank_raw if rank_raw is not None else "N/A"
+                )
                 mi = calculate_min_increment(bv)
                 card_id = await self.bot.db.create_auction_card(
-                    auction_id, p["uuid"], rating, rank, bv, mb, mi,
+                    auction_id,
+                    p["uuid"],
+                    rating,
+                    rank,
+                    bv,
+                    mb,
+                    mi,
                 )
                 auction_card_ids[p["uuid"]] = card_id
         except Exception as e:
@@ -434,7 +474,9 @@ class Auction(commands.Cog):
             auction_id = None
             auction_card_ids = {}
 
-        view = AuctionView(self.bot, players, duration_seconds, auction_id, auction_card_ids)
+        view = AuctionView(
+            self.bot, players, duration_seconds, auction_id, auction_card_ids
+        )
         content = f"<@&{config.AUCTION_PING_ROLE_ID}> **{title}**\nBid below. One active bid per drop. Bank value and yield shown top-right of each card."
 
         channel = self.bot.get_channel(config.DROP_CHANNEL_ID)
@@ -447,7 +489,9 @@ class Auction(commands.Cog):
             view=view,
             allowed_mentions=discord.AllowedMentions(roles=True),
         )
-        print(f"  ✅ Drop sent to channel {config.DROP_CHANNEL_ID}. Auction closes in {duration_seconds // 60}m {duration_seconds % 60}s.")
+        print(
+            f"  ✅ Drop sent to channel {config.DROP_CHANNEL_ID}. Auction closes in {duration_seconds // 60}m {duration_seconds % 60}s."
+        )
         view.message = msg
         asyncio.create_task(self._force_close_auction(view, seconds=duration_seconds))
 
@@ -456,7 +500,7 @@ class Auction(commands.Cog):
         await view.on_timeout()
 
     async def _fire_auto_drop(self):
-        players = await self.bot.db.get_random_unbanned_players(limit=6)
+        players = await self.bot.db.get_random_unbanned_players(limit=8)
         if not players:
             print("⚠️ Auto drop skipped: no eligible players found.")
             return
@@ -469,7 +513,6 @@ class Auction(commands.Cog):
             print(f"❌ Drop failed during send: {e}. Resetting is_active.")
             await self.bot.db.set_auction_active(False)
             raise
-
 
 
 async def setup(bot):
