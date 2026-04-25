@@ -612,6 +612,30 @@ class Database:
         async with self.pool.acquire() as conn:
             return await conn.fetchrow(query, str(discord_id))
 
+    async def get_all_users_wealth(self) -> List[asyncpg.Record]:
+        query = """
+        SELECT u.discord_id,
+               u.coins + COALESCE(SUM(10000.0 * POWER(p.current_drating / 2200.0, 3)), 0) AS combined
+        FROM discord_tcg.users u
+        LEFT JOIN discord_tcg.cards c ON c.owner_id = u.discord_id
+        LEFT JOIN event_elo.players p ON c.player_uuid = p.uuid AND p.is_banned = FALSE
+        GROUP BY u.discord_id, u.coins
+        """
+        async with self.pool.acquire() as conn:
+            return await conn.fetch(query)
+
+    async def get_user_combined_wealth(self, discord_id: int) -> Optional[float]:
+        query = """
+        SELECT u.coins + COALESCE(SUM(10000.0 * POWER(p.current_drating / 2200.0, 3)), 0) AS combined
+        FROM discord_tcg.users u
+        LEFT JOIN discord_tcg.cards c ON c.owner_id = u.discord_id
+        LEFT JOIN event_elo.players p ON c.player_uuid = p.uuid AND p.is_banned = FALSE
+        WHERE u.discord_id = $1
+        GROUP BY u.discord_id, u.coins
+        """
+        async with self.pool.acquire() as conn:
+            return await conn.fetchval(query, str(discord_id))
+
     async def get_winning_bid_scatter(self, hours: int = 24) -> List[asyncpg.Record]:
         """One row per closed auction with a winner in the window."""
         query = """

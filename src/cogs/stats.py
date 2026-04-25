@@ -17,6 +17,32 @@ except ImportError:
     PLOTLY_AVAILABLE = False
 
 
+WEALTH_ROLES = [
+    (0,        1497664499275010000),  # Aficionado
+    (1000,     1497664836937580000),  # Amateur
+    (2000,     1497664968122830000),  # Grand Amateur
+    (4000,     1497665109898560000),  # Collector
+    (8000,     1497665383367450000),  # Grand Collector
+    (16000,    1497665503983050000),  # Appraiser
+    (32000,    1497665607275910000),  # Grand Appraiser
+    (64000,    1497665722199970000),  # Gourmand
+    (128000,   1497665844426180000),  # Grand Gourmand
+    (256000,   1497666043592710000),  # Sommelier
+    (512000,   1497666240498370000),  # Grand Sommelier
+    (1024000,  1497666395750660000),  # Connoisseur
+    (2048000,  1497666562252080000),  # Grand Connoisseur
+]
+_WEALTH_ROLE_IDS = {role_id for _, role_id in WEALTH_ROLES}
+
+
+def _target_role_id(combined: float) -> int:
+    target = WEALTH_ROLES[0][1]
+    for threshold, role_id in WEALTH_ROLES:
+        if combined >= threshold:
+            target = role_id
+    return target
+
+
 RARITY_COLOR_HEX = {
     "X": "#EF4444",
     "S": "#F59E0B",
@@ -268,6 +294,34 @@ class Stats(commands.Cog):
         await self.bot.db.set_stats_message_id(msg1.id)
         print(f"📊 Stats messages posted (IDs: {msg1.id}, {msg2.id}).")
 
+    async def _update_roles(self, guild: discord.Guild):
+        rows = await self.bot.db.get_all_users_wealth()
+        updates = 0
+        for row in rows:
+            member = guild.get_member(int(row["discord_id"]))
+            if member is None:
+                continue
+            combined = float(row["combined"])
+            target_id = _target_role_id(combined)
+            target_role = guild.get_role(target_id)
+            if target_role is None:
+                continue
+            current_wealth_roles = [r for r in member.roles if r.id in _WEALTH_ROLE_IDS]
+            already_has_target = any(r.id == target_id for r in current_wealth_roles)
+            to_remove = [r for r in current_wealth_roles if r.id != target_id]
+            if already_has_target and not to_remove:
+                continue
+            try:
+                if to_remove:
+                    await member.remove_roles(*to_remove, reason="Wealth role update")
+                if not already_has_target:
+                    await member.add_roles(target_role, reason="Wealth role update")
+                updates += 1
+            except discord.HTTPException as e:
+                print(f"⚠️ Role update failed for {member}: {e}")
+        if updates:
+            print(f"🏷️ Updated wealth roles for {updates} users.")
+
     @tasks.loop(minutes=10)
     async def stats_loop(self):
         if getattr(self.bot, "db", None) is None:
@@ -276,6 +330,12 @@ class Stats(commands.Cog):
             await self._update_messages()
         except Exception as e:
             print(f"❌ Stats loop error: {e}")
+        try:
+            channel = self.bot.get_channel(config.STATS_CHANNEL_ID)
+            if channel:
+                await self._update_roles(channel.guild)
+        except Exception as e:
+            print(f"❌ Roles loop error: {e}")
 
     @app_commands.command(name="rank", description="See your leaderboard ranks")
     async def rank(self, interaction: discord.Interaction):
@@ -302,6 +362,30 @@ class Stats(commands.Cog):
             color=discord.Color.gold(),
         )
         await interaction.followup.send(embed=embed)
+
+    @app_commands.command(name="updaterole", description="Update your wealth role immediately")
+    async def updaterole(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        combined = await self.bot.db.get_user_combined_wealth(interaction.user.id)
+        if combined is None:
+            return await interaction.followup.send("You must /register first.", ephemeral=True)
+        guild = interaction.guild
+        target_id = _target_role_id(float(combined))
+        target_role = guild.get_role(target_id)
+        if target_role is None:
+            return await interaction.followup.send("Role not found — contact an admin.", ephemeral=True)
+        member = interaction.user
+        current_wealth_roles = [r for r in member.roles if r.id in _WEALTH_ROLE_IDS]
+        already_has_target = any(r.id == target_id for r in current_wealth_roles)
+        to_remove = [r for r in current_wealth_roles if r.id != target_id]
+        try:
+            if to_remove:
+                await member.remove_roles(*to_remove, reason="Manual wealth role update")
+            if not already_has_target:
+                await member.add_roles(target_role, reason="Manual wealth role update")
+        except discord.HTTPException as e:
+            return await interaction.followup.send(f"Failed to update role: {e}", ephemeral=True)
+        await interaction.followup.send(f"Your role is **{target_role.name}**.", ephemeral=True)
 
     @stats_loop.before_loop
     async def before_stats_loop(self):
