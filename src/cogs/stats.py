@@ -18,19 +18,19 @@ except ImportError:
 
 
 WEALTH_ROLES = [
-    (0,        1497664499275010000),  # Aficionado
-    (1000,     1497664836937580000),  # Amateur
-    (2000,     1497664968122830000),  # Grand Amateur
-    (4000,     1497665109898560000),  # Collector
-    (8000,     1497665383367450000),  # Grand Collector
-    (16000,    1497665503983050000),  # Appraiser
-    (32000,    1497665607275910000),  # Grand Appraiser
-    (64000,    1497665722199970000),  # Gourmand
-    (128000,   1497665844426180000),  # Grand Gourmand
-    (256000,   1497666043592710000),  # Sommelier
-    (512000,   1497666240498370000),  # Grand Sommelier
-    (1024000,  1497666395750660000),  # Connoisseur
-    (2048000,  1497666562252080000),  # Grand Connoisseur
+    (0,        1497664499275010081),  # Aficionado
+    (1000,     1497664836937580555),  # Amateur
+    (2000,     1497664968122826926),  # Grand Amateur
+    (4000,     1497665109898559610),  # Collector
+    (8000,     1497665383367446589),  # Grand Collector
+    (16000,    1497665503983046716),  # Appraiser
+    (32000,    1497665607275905274),  # Grand Appraiser
+    (64000,    1497665722199965776),  # Gourmand
+    (128000,   1497665844426178711),  # Grand Gourmand
+    (256000,   1497666043592708226),  # Sommelier
+    (512000,   1497666240498368652),  # Grand Sommelier
+    (1024000,  1497666395750662304),  # Connoisseur
+    (2048000,  1497666562252083281),  # Grand Connoisseur
 ]
 _WEALTH_ROLE_IDS = {role_id for _, role_id in WEALTH_ROLES}
 
@@ -296,6 +296,7 @@ class Stats(commands.Cog):
 
     async def _update_roles(self, guild: discord.Guild):
         rows = await self.bot.db.get_all_users_wealth()
+        print(f"🏷️ _update_roles: {len(rows)} users, {len(guild.roles)} roles cached, {len(guild.members)} members cached")
         updates = 0
         for row in rows:
             member = guild.get_member(int(row["discord_id"]))
@@ -373,6 +374,8 @@ class Stats(commands.Cog):
         target_id = _target_role_id(float(combined))
         target_role = guild.get_role(target_id)
         if target_role is None:
+            guild_role_ids = [r.id for r in guild.roles]
+            print(f"🔍 target_id={target_id}, combined={combined}, guild_role_ids={guild_role_ids}")
             return await interaction.followup.send("Role not found — contact an admin.", ephemeral=True)
         member = interaction.user
         current_wealth_roles = [r for r in member.roles if r.id in _WEALTH_ROLE_IDS]
