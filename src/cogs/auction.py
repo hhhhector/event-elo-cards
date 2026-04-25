@@ -141,14 +141,6 @@ class BidModal(discord.ui.Modal):
             print(
                 f"  ↩️ Refunded ⛃ {prev_bid:,} to user {prev_user_id} (outbid on {self.player_name})"
             )
-            prev_user = self.bot.get_user(prev_user_id)
-            if prev_user:
-                try:
-                    await prev_user.send(
-                        f"Outbid on {self.player_name}. {prev_bid:,} refunded."
-                    )
-                except discord.HTTPException:
-                    pass
 
         # Deduct coins
         await self.bot.db.update_user_coins(user_id, -bid_amount)
