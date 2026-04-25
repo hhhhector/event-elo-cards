@@ -419,6 +419,11 @@ class Stats(commands.Cog):
             except discord.NotFound:
                 print("📊 Stored stats message not found — will repost.")
 
+        try:
+            await self._update_roles(channel.guild)
+        except Exception as e:
+            print(f"❌ Startup role update error: {e}")
+
         print("✅ Stats loop started.")
 
 
