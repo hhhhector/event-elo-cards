@@ -15,12 +15,12 @@ from src.utils.economy_utils import (
 )
 
 HOURLY_AVG_MINUTES = {
-    **{h: 50 for h in range(6, 12)},  # 06-12 dead
-    **{h: 20 for h in range(12, 16)},  # 12-16 EU waking
-    **{h: 12 for h in range(16, 20)},  # 16-20 EU peak, NA arriving
-    **{h: 5 for h in range(20, 24)},  # 20-00 peak overlap
-    **{h: 12 for h in range(0, 4)},  # 00-04 EU late, NA prime
-    **{h: 20 for h in range(4, 6)},  # 04-06 NA winding down
+    **{h: 25 for h in range(6, 12)},
+    **{h: 12 for h in range(12, 16)},
+    **{h: 8 for h in range(16, 20)},
+    **{h: 5 for h in range(20, 24)},
+    **{h: 8 for h in range(0, 4)},
+    **{h: 10 for h in range(4, 6)},
 }
 
 
