@@ -636,6 +636,47 @@ class Database:
         async with self.pool.acquire() as conn:
             return await conn.fetchval(query, str(discord_id))
 
+    # --- Archived cards ---
+
+    async def archive_card(self, card_id: str, owner_id: int) -> bool:
+        """Atomically move a card from active cards to archived_cards. Returns True on success."""
+        async with self.pool.acquire() as conn:
+            async with conn.transaction():
+                card = await conn.fetchrow(
+                    "DELETE FROM discord_tcg.cards WHERE id = $1 AND owner_id = $2 RETURNING id, player_uuid, acquired_at",
+                    card_id, str(owner_id),
+                )
+                if card is None:
+                    return False
+                await conn.execute(
+                    "INSERT INTO discord_tcg.archived_cards (id, owner_id, player_uuid, acquired_at) VALUES ($1, $2, $3, $4)",
+                    card["id"], str(owner_id), card["player_uuid"], card["acquired_at"],
+                )
+                return True
+
+    async def get_archived_cards(self, discord_id: int) -> List[asyncpg.Record]:
+        query = """
+        SELECT ac.id AS card_id, ac.player_uuid, ac.acquired_at, ac.archived_at,
+               p.current_name, p.current_drating, p.current_rank
+        FROM discord_tcg.archived_cards ac
+        JOIN event_elo.players p ON ac.player_uuid = p.uuid
+        WHERE ac.owner_id = $1
+        ORDER BY p.current_drating DESC
+        """
+        async with self.pool.acquire() as conn:
+            return await conn.fetch(query, str(discord_id))
+
+    async def get_archived_card_by_id(self, card_id: str, owner_id: int) -> Optional[asyncpg.Record]:
+        query = """
+        SELECT ac.id AS card_id, ac.player_uuid, ac.acquired_at, ac.archived_at,
+               p.current_name, p.current_drating, p.current_rank
+        FROM discord_tcg.archived_cards ac
+        JOIN event_elo.players p ON ac.player_uuid = p.uuid
+        WHERE ac.id = $1 AND ac.owner_id = $2
+        """
+        async with self.pool.acquire() as conn:
+            return await conn.fetchrow(query, card_id, str(owner_id))
+
     async def get_winning_bid_scatter(self, hours: int = 24) -> List[asyncpg.Record]:
         """One row per closed auction with a winner in the window."""
         query = """
