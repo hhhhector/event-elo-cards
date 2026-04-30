@@ -60,11 +60,8 @@ class ArchiveConfirmView(discord.ui.View):
         for item in self.children:
             item.disabled = True
         if success:
-            await interaction.response.edit_message(
-                content=f"**{self.card_name}** archived. It won't count toward your roster cap and generates no yield.",
-                embed=None,
-                view=self,
-            )
+            await interaction.response.edit_message(content="Done.", embed=None, view=self)
+            await interaction.channel.send(f"<@{self.owner_id}> archived **{self.card_name}**.")
         else:
             await interaction.response.edit_message(
                 content="Failed. Card may have already been sold or moved.",
