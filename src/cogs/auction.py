@@ -12,7 +12,12 @@ from src.utils.economy_utils import (
     calculate_bank_value,
     calculate_min_bid,
     calculate_min_increment,
+    get_rarity,
 )
+
+RARITY_EMOJI = {
+    "X": "🟥", "S": "🟨", "A": "🟪", "B": "🟦", "C": "🟩", "D": "⬜",
+}
 
 HOURLY_AVG_MINUTES = {
     **{h: 25 for h in range(6, 12)},
@@ -177,14 +182,17 @@ class BidModal(discord.ui.Modal):
         # avoids Discord 3s interaction-token expiry during slow DB paths).
         if self.auction_view.message:
             try:
-                await self.auction_view.message.edit(view=self.auction_view)
+                await self.auction_view.message.edit(
+                    embed=self.auction_view.build_embed(), view=self.auction_view
+                )
             except discord.HTTPException as e:
                 print(f"  ⚠️ Failed to refresh auction view: {e}")
 
-            announcement = f"<@{user_id}> bid ⛃ {bid_amount:,} on **{self.player_name}**. Minimum bid is now ⛃ {next_min:,}."
+            announcement = f"<@{user_id}> bid ⛃ {bid_amount:,} on **{self.player_name}**. Min next: ⛃ {next_min:,}."
             if prev_user_id and prev_user_id != user_id:
                 announcement += f" (outbid <@{prev_user_id}>)"
-            await self.auction_view.message.channel.send(announcement)
+            target = self.auction_view.thread or self.auction_view.message.channel
+            await target.send(announcement)
 
 
 class AuctionView(discord.ui.View):
@@ -205,6 +213,7 @@ class AuctionView(discord.ui.View):
         self.highest_bidders = {}  # player_uuid -> (user_id, bid_amount)
         self.bid_locks = {p["uuid"]: asyncio.Lock() for p in players}
         self.message = None
+        self.thread = None
         self.deadline = datetime.now(timezone.utc) + timedelta(seconds=duration_seconds)
         self._closed = False
         self.auction_id = auction_id
@@ -227,6 +236,27 @@ class AuctionView(discord.ui.View):
             )
             btn.callback = self.make_callback(p["uuid"], p["current_name"])
             self.add_item(btn)
+
+    def build_embed(self) -> discord.Embed:
+        card_lines, bid_lines, bidder_lines = [], [], []
+        for p in self.players:
+            puuid = p["uuid"]
+            emoji = RARITY_EMOJI[get_rarity(p.get("current_rank"))]
+            bv = calculate_bank_value(float(p["current_drating"]))
+            card_lines.append(f"{emoji} **{p['current_name']}** ⛃ {bv:,}")
+
+            current_bid = self.bids.get(puuid, 0)
+            next_min = current_bid + self.min_increments[puuid] if current_bid else self.min_bids[puuid]
+            bid_lines.append(f"⛃ {next_min:,}")
+
+            bidder = self.highest_bidders.get(puuid)
+            bidder_lines.append(f"<@{bidder[0]}>" if bidder else "—")
+
+        embed = discord.Embed(title="Auction Details", color=0x5865F2)
+        embed.add_field(name="Card", value="\n".join(card_lines), inline=True)
+        embed.add_field(name="Min. Next Bid", value="\n".join(bid_lines), inline=True)
+        embed.add_field(name="Cur. Bidder", value="\n".join(bidder_lines), inline=True)
+        return embed
 
     def make_callback(self, player_uuid, player_name):
         async def callback(interaction: discord.Interaction):
@@ -469,7 +499,7 @@ class Auction(commands.Cog):
         view = AuctionView(
             self.bot, players, duration_seconds, auction_id, auction_card_ids
         )
-        content = f"<@&{config.AUCTION_PING_ROLE_ID}> **{title}**\nBid below. One active bid per drop. Bank value and yield shown top-right of each card."
+        content = f"<@&{config.AUCTION_PING_ROLE_ID}> **{title}**\nBid below. One active bid per drop."
 
         channel = self.bot.get_channel(config.DROP_CHANNEL_ID)
         if not channel:
@@ -477,6 +507,7 @@ class Auction(commands.Cog):
             return
         msg = await channel.send(
             content=content,
+            embed=view.build_embed(),
             file=file,
             view=view,
             allowed_mentions=discord.AllowedMentions(roles=True),
@@ -485,6 +516,11 @@ class Auction(commands.Cog):
             f"  ✅ Drop sent to channel {config.DROP_CHANNEL_ID}. Auction closes in {duration_seconds // 60}m {duration_seconds % 60}s."
         )
         view.message = msg
+        try:
+            view.thread = await msg.create_thread(name="Bid Activity", auto_archive_duration=60)
+            print(f"  ✅ Bid thread created.")
+        except discord.HTTPException as e:
+            print(f"  ⚠️ Failed to create bid thread: {e}. Bids will post to channel.")
         asyncio.create_task(self._force_close_auction(view, seconds=duration_seconds))
 
     async def _force_close_auction(self, view: AuctionView, seconds: int):
