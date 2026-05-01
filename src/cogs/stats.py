@@ -431,17 +431,16 @@ class Stats(commands.Cog):
         rarity = get_rarity(first["current_rank"])
         color = discord.Color(RARITY_COLOR[rarity])
         emoji = RARITY_EMOJI[rarity]
-
         active_count = sum(1 for c in cards if not c["is_archived"])
         archived_count = sum(1 for c in cards if c["is_archived"])
 
         lines = []
         for c in cards:
-            suffix = " · Archived" if c["is_archived"] else ""
-            lines.append(f"{emoji} <@{int(c['owner_id'])}>{suffix}")
+            suffix = " (Archived)" if c["is_archived"] else ""
+            lines.append(f"{emoji} **{player_name}** `{rating}` · <@{int(c['owner_id'])}>{suffix}")
 
         embed = discord.Embed(
-            title=f"Who has {player_name}?",
+            title=f"Existing {player_name} cards",
             description="\n".join(lines),
             color=color,
         )

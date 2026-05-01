@@ -238,9 +238,9 @@ class Inventory(commands.Cog):
                 f"**Bank Value:** ⛃ {bv:,}\n"
                 f"**Daily Yield:** {yield_str}\n"
                 f"**Status:** {status_str}\n"
-                f"**Existing:** {existing_str}\n"
                 f"**Card ID:** `{str(target_card['card_id'])[:8]}…`\n"
-                f"**Owner:** <@{interaction.user.id}>"
+                f"**Owner:** <@{interaction.user.id}>\n"
+                f"**Existing:** {existing_str}"
             ),
             color=color,
         )
