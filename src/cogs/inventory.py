@@ -91,8 +91,9 @@ class Inventory(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @app_commands.command(name="inv", description="List your owned cards")
-    async def inventory(self, interaction: discord.Interaction):
+    @app_commands.command(name="inv", description="List owned cards")
+    @app_commands.describe(user="Another user's inventory to view (defaults to yours)")
+    async def inventory(self, interaction: discord.Interaction, user: discord.Member = None):
         if getattr(self.bot, "db", None) is None:
             return await interaction.response.send_message(
                 "Database not connected.", ephemeral=True
@@ -100,19 +101,21 @@ class Inventory(commands.Cog):
 
         await interaction.response.defer()
 
-        roster_info = await self.bot.db.get_user_roster_info(interaction.user.id)
+        target = user or interaction.user
+
+        roster_info = await self.bot.db.get_user_roster_info(target.id)
         if roster_info is None:
-            return await interaction.followup.send(
-                "You must run /register first.", ephemeral=True
-            )
+            msg = "You must run /register first." if target == interaction.user else f"{target.display_name} hasn't registered yet."
+            return await interaction.followup.send(msg, ephemeral=True)
 
         cards, archived = await asyncio.gather(
-            self.bot.db.get_user_cards(interaction.user.id),
-            self.bot.db.get_archived_cards(interaction.user.id),
+            self.bot.db.get_user_cards(target.id),
+            self.bot.db.get_archived_cards(target.id),
         )
 
         if not cards and not archived:
-            return await interaction.followup.send("You have no cards.", ephemeral=True)
+            msg = "You have no cards." if target == interaction.user else f"{target.display_name} has no cards."
+            return await interaction.followup.send(msg, ephemeral=True)
 
         balance = int(float(roster_info["coins"]))
         roster_cap = roster_info["roster_cap"]
@@ -133,7 +136,7 @@ class Inventory(commands.Cog):
             )
 
         embed = discord.Embed(
-            title=f"{interaction.user.name}'s Inventory",
+            title=f"{target.display_name}'s Inventory",
             description="\n".join(active_lines) if active_lines else "No active cards.",
             color=discord.Color.blue(),
         )
@@ -199,8 +202,9 @@ class Inventory(commands.Cog):
                 f"You don't own a card with ID `{card_id}`.", ephemeral=True
             )
 
-        extended_stats = await self.bot.db.get_player_extended_stats(
-            target_card["player_uuid"]
+        extended_stats, card_counts = await asyncio.gather(
+            self.bot.db.get_player_extended_stats(target_card["player_uuid"]),
+            self.bot.db.get_player_card_counts(target_card["player_uuid"]),
         )
         image_buffer = await generate_card_image(
             dict(extended_stats) if extended_stats else dict(target_card)
@@ -223,6 +227,10 @@ class Inventory(commands.Cog):
             color = discord.Color(RARITY_COLOR[rarity])
             yield_str = f"⛃ {yield_val:,}"
 
+        active_count = int(card_counts["active"])
+        archived_count = int(card_counts["archived"])
+        existing_str = f"{active_count}" if not archived_count else f"{active_count} (+{archived_count} archived)"
+
         embed = discord.Embed(
             title=target_card["current_name"],
             description=(
@@ -230,6 +238,7 @@ class Inventory(commands.Cog):
                 f"**Bank Value:** ⛃ {bv:,}\n"
                 f"**Daily Yield:** {yield_str}\n"
                 f"**Status:** {status_str}\n"
+                f"**Existing:** {existing_str}\n"
                 f"**Card ID:** `{str(target_card['card_id'])[:8]}…`\n"
                 f"**Owner:** <@{interaction.user.id}>"
             ),

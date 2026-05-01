@@ -37,6 +37,16 @@ async def all_cards_autocomplete(interaction: Interaction, current: str) -> list
     return choices[:25]
 
 
+async def player_autocomplete(interaction: Interaction, current: str) -> list[app_commands.Choice[str]]:
+    if getattr(interaction.client, 'db', None) is None:
+        return []
+    players = await interaction.client.db.search_players_by_name(current)
+    return [
+        app_commands.Choice(name=c['current_name'], value=str(c['uuid']))
+        for c in players
+    ]
+
+
 async def their_card_autocomplete(interaction: Interaction, current: str) -> list[app_commands.Choice[str]]:
     if getattr(interaction.client, 'db', None) is None:
         return []

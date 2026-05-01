@@ -1,5 +1,6 @@
 import asyncio
 import io
+import uuid
 from collections import defaultdict
 from datetime import datetime, timezone
 
@@ -8,6 +9,8 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from src import config
+from src.utils.autocomplete import player_autocomplete
+from src.utils.economy_utils import get_rarity
 
 try:
     import plotly.graph_objects as go
@@ -42,6 +45,14 @@ def _target_role_id(combined: float) -> int:
             target = role_id
     return target
 
+
+RARITY_EMOJI = {
+    "X": "🟥", "S": "🟨", "A": "🟪", "B": "🟦", "C": "🟩", "D": "⬜",
+}
+RARITY_COLOR = {
+    "X": 0xEF4444, "S": 0xF59E0B, "A": 0xA855F7,
+    "B": 0x0EA5E9, "C": 0x22C55E, "D": 0x64748B,
+}
 
 RARITY_COLOR_HEX = {
     "X": "#EF4444",
@@ -389,6 +400,55 @@ class Stats(commands.Cog):
         except discord.HTTPException as e:
             return await interaction.followup.send(f"Failed to update role: {e}", ephemeral=True)
         await interaction.followup.send(f"Your role is **{target_role.name}**.", ephemeral=True)
+
+    @app_commands.command(name="whohas", description="See who owns cards of a specific player")
+    @app_commands.describe(player_id="Player name to look up")
+    @app_commands.autocomplete(player_id=player_autocomplete)
+    async def whohas(self, interaction: discord.Interaction, player_id: str):
+        if getattr(self.bot, "db", None) is None:
+            return await interaction.response.send_message(
+                "Database not connected.", ephemeral=True
+            )
+
+        await interaction.response.defer()
+
+        try:
+            uuid.UUID(player_id)
+        except ValueError:
+            return await interaction.followup.send(
+                "Invalid player. Use the autocomplete dropdown to select one.",
+                ephemeral=True,
+            )
+
+        cards = await self.bot.db.get_cards_by_player_uuid(player_id)
+
+        if not cards:
+            return await interaction.followup.send("No cards found.")
+
+        first = cards[0]
+        player_name = first["current_name"]
+        rating = int(float(first["current_drating"]))
+        rarity = get_rarity(first["current_rank"])
+        color = discord.Color(RARITY_COLOR[rarity])
+        emoji = RARITY_EMOJI[rarity]
+
+        active_count = sum(1 for c in cards if not c["is_archived"])
+        archived_count = sum(1 for c in cards if c["is_archived"])
+
+        lines = []
+        for c in cards:
+            suffix = " · Archived" if c["is_archived"] else ""
+            lines.append(f"{emoji} <@{int(c['owner_id'])}>{suffix}")
+
+        embed = discord.Embed(
+            title=f"Who has {player_name}?",
+            description="\n".join(lines),
+            color=color,
+        )
+        embed.set_footer(
+            text=f"{rating} rating · {active_count} active, {archived_count} archived"
+        )
+        await interaction.followup.send(embed=embed)
 
     @stats_loop.before_loop
     async def before_stats_loop(self):

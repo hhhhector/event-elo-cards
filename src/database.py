@@ -677,6 +677,41 @@ class Database:
         async with self.pool.acquire() as conn:
             return await conn.fetchrow(query, card_id, str(owner_id))
 
+    async def get_player_card_counts(self, player_uuid: str) -> asyncpg.Record:
+        query = """
+        SELECT
+            (SELECT COUNT(*) FROM discord_tcg.cards WHERE player_uuid = $1) AS active,
+            (SELECT COUNT(*) FROM discord_tcg.archived_cards WHERE player_uuid = $1) AS archived
+        """
+        async with self.pool.acquire() as conn:
+            return await conn.fetchrow(query, player_uuid)
+
+    async def search_players_by_name(self, name: str, limit: int = 25) -> List[asyncpg.Record]:
+        async with self.pool.acquire() as conn:
+            return await conn.fetch(
+                "SELECT uuid, current_name FROM event_elo.players "
+                "WHERE current_name ILIKE $1 ORDER BY current_drating DESC NULLS LAST LIMIT $2",
+                f"%{name}%", limit,
+            )
+
+    async def get_cards_by_player_uuid(self, player_uuid: str) -> List[asyncpg.Record]:
+        query = """
+        SELECT c.id AS card_id, c.owner_id, p.current_name, p.current_drating, p.current_rank,
+               FALSE AS is_archived
+        FROM discord_tcg.cards c
+        JOIN event_elo.players p ON c.player_uuid = p.uuid
+        WHERE c.player_uuid = $1
+        UNION ALL
+        SELECT ac.id AS card_id, ac.owner_id, p.current_name, p.current_drating, p.current_rank,
+               TRUE AS is_archived
+        FROM discord_tcg.archived_cards ac
+        JOIN event_elo.players p ON ac.player_uuid = p.uuid
+        WHERE ac.player_uuid = $1
+        ORDER BY is_archived, current_drating DESC
+        """
+        async with self.pool.acquire() as conn:
+            return await conn.fetch(query, player_uuid)
+
     async def get_winning_bid_scatter(self, hours: int = 24) -> List[asyncpg.Record]:
         """One row per closed auction with a winner in the window."""
         query = """
