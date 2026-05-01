@@ -243,7 +243,7 @@ class AuctionView(discord.ui.View):
             puuid = p["uuid"]
             emoji = RARITY_EMOJI[get_rarity(p.get("current_rank"))]
             bv = calculate_bank_value(float(p["current_drating"]))
-            card_lines.append(f"{emoji} **{p['current_name']}** ⛃ {bv:,}")
+            card_lines.append(f"{emoji} **{p['current_name']}** · ⛃ {bv:,}")
 
             current_bid = self.bids.get(puuid, 0)
             next_min = current_bid + self.min_increments[puuid] if current_bid else self.min_bids[puuid]
