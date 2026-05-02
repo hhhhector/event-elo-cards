@@ -686,6 +686,40 @@ class Database:
         async with self.pool.acquire() as conn:
             return await conn.fetchrow(query, player_uuid)
 
+    async def add_to_wishlist(self, discord_id: int, player_uuid: str) -> bool:
+        async with self.pool.acquire() as conn:
+            status = await conn.execute(
+                "INSERT INTO discord_tcg.wishlists (discord_id, player_uuid) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                str(discord_id), player_uuid,
+            )
+            return status == "INSERT 0 1"
+
+    async def remove_from_wishlist(self, discord_id: int, player_uuid: str) -> bool:
+        async with self.pool.acquire() as conn:
+            status = await conn.execute(
+                "DELETE FROM discord_tcg.wishlists WHERE discord_id = $1 AND player_uuid = $2",
+                str(discord_id), player_uuid,
+            )
+            return status == "DELETE 1"
+
+    async def get_wishlist(self, discord_id: int) -> List[asyncpg.Record]:
+        query = """
+        SELECT w.player_uuid, p.current_name, p.current_drating, p.current_rank
+        FROM discord_tcg.wishlists w
+        JOIN event_elo.players p ON w.player_uuid = p.uuid
+        WHERE w.discord_id = $1
+        ORDER BY p.current_drating DESC
+        """
+        async with self.pool.acquire() as conn:
+            return await conn.fetch(query, str(discord_id))
+
+    async def get_wishlisted_users_for_players(self, player_uuids: list) -> List[asyncpg.Record]:
+        async with self.pool.acquire() as conn:
+            return await conn.fetch(
+                "SELECT DISTINCT discord_id FROM discord_tcg.wishlists WHERE player_uuid = ANY($1::uuid[])",
+                player_uuids,
+            )
+
     async def search_players_by_name(self, name: str, limit: int = 25) -> List[asyncpg.Record]:
         async with self.pool.acquire() as conn:
             return await conn.fetch(

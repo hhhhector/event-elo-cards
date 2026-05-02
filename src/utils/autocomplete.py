@@ -47,6 +47,17 @@ async def player_autocomplete(interaction: Interaction, current: str) -> list[ap
     ]
 
 
+async def wishlist_autocomplete(interaction: Interaction, current: str) -> list[app_commands.Choice[str]]:
+    if getattr(interaction.client, 'db', None) is None:
+        return []
+    entries = await interaction.client.db.get_wishlist(interaction.user.id)
+    return [
+        app_commands.Choice(name=c['current_name'], value=str(c['player_uuid']))
+        for c in entries
+        if current.lower() in c['current_name'].lower()
+    ][:25]
+
+
 async def their_card_autocomplete(interaction: Interaction, current: str) -> list[app_commands.Choice[str]]:
     if getattr(interaction.client, 'db', None) is None:
         return []

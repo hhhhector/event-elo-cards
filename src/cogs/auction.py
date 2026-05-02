@@ -499,7 +499,13 @@ class Auction(commands.Cog):
         view = AuctionView(
             self.bot, players, duration_seconds, auction_id, auction_card_ids
         )
-        content = f"<@&{config.AUCTION_PING_ROLE_ID}> **{title}**\nBid below. One active bid per drop."
+
+        wishlist_rows = await self.bot.db.get_wishlisted_users_for_players(
+            [str(p["uuid"]) for p in players]
+        )
+        wishlist_mentions = " ".join(f"<@{row['discord_id']}>" for row in wishlist_rows)
+        ping_str = f"<@&{config.AUCTION_PING_ROLE_ID}> {wishlist_mentions}" if wishlist_mentions else f"<@&{config.AUCTION_PING_ROLE_ID}>"
+        content = f"{ping_str} **{title}**\nBid below. One active bid per drop."
 
         channel = self.bot.get_channel(config.DROP_CHANNEL_ID)
         if not channel:
