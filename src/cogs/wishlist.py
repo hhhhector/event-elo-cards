@@ -21,13 +21,13 @@ class Wishlist(commands.Cog):
     @wishlist_group.command(name="view", description="View your wishlist")
     async def wishlist_view(self, interaction: discord.Interaction):
         if getattr(self.bot, "db", None) is None:
-            return await interaction.response.send_message("Database not connected.", ephemeral=True)
+            return await interaction.response.send_message("Database not connected.", ephemeral=False)
 
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer(ephemeral=False)
 
         entries = await self.bot.db.get_wishlist(interaction.user.id)
         if not entries:
-            return await interaction.followup.send("Your wishlist is empty.", ephemeral=True)
+            return await interaction.followup.send("Your wishlist is empty.", ephemeral=False)
 
         lines = []
         for e in entries:
@@ -41,53 +41,53 @@ class Wishlist(commands.Cog):
             color=discord.Color.blurple(),
         )
         embed.set_footer(text=f"{len(entries)} players")
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed, ephemeral=False)
 
     @wishlist_group.command(name="add", description="Add a player to your wishlist")
     @app_commands.describe(player_id="Player to add")
     @app_commands.autocomplete(player_id=player_autocomplete)
     async def wishlist_add(self, interaction: discord.Interaction, player_id: str):
         if getattr(self.bot, "db", None) is None:
-            return await interaction.response.send_message("Database not connected.", ephemeral=True)
+            return await interaction.response.send_message("Database not connected.", ephemeral=False)
 
         try:
             uuid.UUID(player_id)
         except ValueError:
             return await interaction.response.send_message(
-                "Invalid player. Use the autocomplete dropdown.", ephemeral=True
+                "Invalid player. Use the autocomplete dropdown.", ephemeral=False
             )
 
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer(ephemeral=False)
 
         added = await self.bot.db.add_to_wishlist(interaction.user.id, player_id)
         if added:
             player = await self.bot.db.get_player_extended_stats(player_id)
             name = player["current_name"] if player else player_id
-            await interaction.followup.send(f"Added **{name}** to your wishlist.", ephemeral=True)
+            await interaction.followup.send(f"Added **{name}** to your wishlist.", ephemeral=False)
         else:
-            await interaction.followup.send("That player is already on your wishlist.", ephemeral=True)
+            await interaction.followup.send("That player is already on your wishlist.", ephemeral=False)
 
     @wishlist_group.command(name="remove", description="Remove a player from your wishlist")
     @app_commands.describe(player_id="Player to remove")
     @app_commands.autocomplete(player_id=wishlist_autocomplete)
     async def wishlist_remove(self, interaction: discord.Interaction, player_id: str):
         if getattr(self.bot, "db", None) is None:
-            return await interaction.response.send_message("Database not connected.", ephemeral=True)
+            return await interaction.response.send_message("Database not connected.", ephemeral=False)
 
         try:
             uuid.UUID(player_id)
         except ValueError:
             return await interaction.response.send_message(
-                "Invalid player. Use the autocomplete dropdown.", ephemeral=True
+                "Invalid player. Use the autocomplete dropdown.", ephemeral=False
             )
 
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer(ephemeral=False)
 
         removed = await self.bot.db.remove_from_wishlist(interaction.user.id, player_id)
         if removed:
-            await interaction.followup.send("Removed from your wishlist.", ephemeral=True)
+            await interaction.followup.send("Removed from your wishlist.", ephemeral=False)
         else:
-            await interaction.followup.send("That player wasn't on your wishlist.", ephemeral=True)
+            await interaction.followup.send("That player wasn't on your wishlist.", ephemeral=False)
 
 
 async def setup(bot):
