@@ -724,7 +724,7 @@ class Database:
         async with self.pool.acquire() as conn:
             return await conn.fetch(
                 "SELECT uuid, current_name FROM event_elo.players "
-                "WHERE current_name ILIKE $1 ORDER BY current_drating DESC NULLS LAST LIMIT $2",
+                "WHERE current_name ILIKE $1 AND is_banned = FALSE ORDER BY current_drating DESC NULLS LAST LIMIT $2",
                 f"%{name}%", limit,
             )
 
