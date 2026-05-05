@@ -8,7 +8,7 @@ from src.utils.autocomplete import player_autocomplete, wishlist_autocomplete
 from src.utils.economy_utils import get_rarity
 
 RARITY_EMOJI = {
-    "X": "🟥", "S": "🟨", "A": "🟪", "B": "🟦", "C": "🟩", "D": "⬜",
+    "X": "🟥", "SS": "🟧", "S": "🟨", "A": "🟪", "B": "🟦", "C": "🟩", "D": "⬜",
 }
 
 

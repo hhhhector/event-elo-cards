@@ -47,15 +47,16 @@ def _target_role_id(combined: float) -> int:
 
 
 RARITY_EMOJI = {
-    "X": "🟥", "S": "🟨", "A": "🟪", "B": "🟦", "C": "🟩", "D": "⬜",
+    "X": "🟥", "SS": "🟧", "S": "🟨", "A": "🟪", "B": "🟦", "C": "🟩", "D": "⬜",
 }
 RARITY_COLOR = {
-    "X": 0xEF4444, "S": 0xF59E0B, "A": 0xA855F7,
+    "X": 0xEF4444, "SS": 0xF97316, "S": 0xF59E0B, "A": 0xA855F7,
     "B": 0x0EA5E9, "C": 0x22C55E, "D": 0x64748B,
 }
 
 RARITY_COLOR_HEX = {
     "X": "#EF4444",
+    "SS": "#F97316",
     "S": "#F59E0B",
     "A": "#A855F7",
     "B": "#0EA5E9",
@@ -63,7 +64,7 @@ RARITY_COLOR_HEX = {
     "D": "#64748B",
 }
 
-RARITY_ORDER = ["X", "S", "A", "B", "C", "D"]
+RARITY_ORDER = ["X", "SS", "S", "A", "B", "C", "D"]
 
 
 def fmt(n) -> str:
@@ -101,6 +102,7 @@ def build_embeds(leaderboard_data, economy_stats, last_updated: str):
     s = economy_stats
     rarity_list = (
         f"🟥 : {s['cards_x']}\n"
+        f"🟧 : {s['cards_ss']}\n"
         f"🟨 : {s['cards_s']}\n"
         f"🟪 : {s['cards_a']}\n"
         f"🟦 : {s['cards_b']}\n"

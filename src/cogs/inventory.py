@@ -16,6 +16,7 @@ from src.utils.economy_utils import (
 
 RARITY_EMOJI = {
     "X": "🟥",
+    "SS": "🟧",
     "S": "🟨",
     "A": "🟪",
     "B": "🟦",
@@ -25,6 +26,7 @@ RARITY_EMOJI = {
 
 RARITY_COLOR = {
     "X": 0xEF4444,
+    "SS": 0xF97316,
     "S": 0xF59E0B,
     "A": 0xA855F7,
     "B": 0x0EA5E9,

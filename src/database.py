@@ -225,20 +225,22 @@ class Database:
             (SELECT COALESCE(SUM(
                 10000.0 * POWER(p.current_drating / 2200.0, 3) *
                 CASE
-                    WHEN p.current_rank IS NULL       THEN 1.0/7.0
+                    WHEN p.current_rank IS NULL       THEN 0.14
                     WHEN p.current_rank <= 10         THEN 0.30
+                    WHEN p.current_rank <= 50         THEN 0.26
                     WHEN p.current_rank <= 100        THEN 0.22
                     WHEN p.current_rank <= 250        THEN 0.18
-                    WHEN p.current_rank <= 500        THEN 0.15
-                    WHEN p.current_rank <= 1000       THEN 1.0/7.0
-                    ELSE 1.0/7.0
+                    WHEN p.current_rank <= 500        THEN 0.14
+                    WHEN p.current_rank <= 1000       THEN 0.14
+                    ELSE 0.14
                 END
              ), 0)
              FROM discord_tcg.cards c
              JOIN event_elo.players p ON c.player_uuid = p.uuid
              WHERE p.is_banned = FALSE) AS total_daily_yield,
             (SELECT COUNT(*) FROM discord_tcg.cards c JOIN event_elo.players p ON c.player_uuid = p.uuid WHERE p.is_banned = FALSE AND p.current_rank <= 10) AS cards_x,
-            (SELECT COUNT(*) FROM discord_tcg.cards c JOIN event_elo.players p ON c.player_uuid = p.uuid WHERE p.is_banned = FALSE AND p.current_rank BETWEEN 11 AND 100) AS cards_s,
+            (SELECT COUNT(*) FROM discord_tcg.cards c JOIN event_elo.players p ON c.player_uuid = p.uuid WHERE p.is_banned = FALSE AND p.current_rank BETWEEN 11 AND 50) AS cards_ss,
+            (SELECT COUNT(*) FROM discord_tcg.cards c JOIN event_elo.players p ON c.player_uuid = p.uuid WHERE p.is_banned = FALSE AND p.current_rank BETWEEN 51 AND 100) AS cards_s,
             (SELECT COUNT(*) FROM discord_tcg.cards c JOIN event_elo.players p ON c.player_uuid = p.uuid WHERE p.is_banned = FALSE AND p.current_rank BETWEEN 101 AND 250) AS cards_a,
             (SELECT COUNT(*) FROM discord_tcg.cards c JOIN event_elo.players p ON c.player_uuid = p.uuid WHERE p.is_banned = FALSE AND p.current_rank BETWEEN 251 AND 500) AS cards_b,
             (SELECT COUNT(*) FROM discord_tcg.cards c JOIN event_elo.players p ON c.player_uuid = p.uuid WHERE p.is_banned = FALSE AND p.current_rank BETWEEN 501 AND 1000) AS cards_c,
@@ -288,13 +290,14 @@ class Database:
                 SUM(
                     10000.0 * POWER(p.current_drating / 2200.0, 3) *
                     CASE
-                        WHEN p.current_rank IS NULL       THEN 1.0/7.0
+                        WHEN p.current_rank IS NULL       THEN 0.14
                         WHEN p.current_rank <= 10         THEN 0.30
+                        WHEN p.current_rank <= 50         THEN 0.26
                         WHEN p.current_rank <= 100        THEN 0.22
                         WHEN p.current_rank <= 250        THEN 0.18
-                        WHEN p.current_rank <= 500        THEN 0.15
-                        WHEN p.current_rank <= 1000       THEN 1.0/7.0
-                        ELSE 1.0/7.0
+                        WHEN p.current_rank <= 500        THEN 0.14
+                        WHEN p.current_rank <= 1000       THEN 0.14
+                        ELSE 0.14
                     END
                 )::INT AS dividend
             FROM discord_tcg.cards c
@@ -447,6 +450,7 @@ class Database:
                 CASE
                     WHEN ac.rank IS NULL THEN 'D'
                     WHEN ac.rank <= 10 THEN 'X'
+                    WHEN ac.rank <= 50 THEN 'SS'
                     WHEN ac.rank <= 100 THEN 'S'
                     WHEN ac.rank <= 250 THEN 'A'
                     WHEN ac.rank <= 500 THEN 'B'
@@ -755,6 +759,7 @@ class Database:
             CASE
                 WHEN ac.rank IS NULL THEN 'D'
                 WHEN ac.rank <= 10 THEN 'X'
+                WHEN ac.rank <= 50 THEN 'SS'
                 WHEN ac.rank <= 100 THEN 'S'
                 WHEN ac.rank <= 250 THEN 'A'
                 WHEN ac.rank <= 500 THEN 'B'

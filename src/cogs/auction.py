@@ -16,7 +16,7 @@ from src.utils.economy_utils import (
 )
 
 RARITY_EMOJI = {
-    "X": "🟥", "S": "🟨", "A": "🟪", "B": "🟦", "C": "🟩", "D": "⬜",
+    "X": "🟥", "SS": "🟧", "S": "🟨", "A": "🟪", "B": "🟦", "C": "🟩", "D": "⬜",
 }
 
 HOURLY_AVG_MINUTES = {
