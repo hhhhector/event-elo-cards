@@ -4,7 +4,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 from src import config
-from src.utils.economy_utils import calculate_bank_value, sell_hold_remaining
+from src.utils.economy_utils import calculate_bank_value, esc, sell_hold_remaining
 from src.utils.autocomplete import card_autocomplete
 
 STARTING_BALANCE = 300
@@ -120,7 +120,7 @@ class Economy(commands.Cog):
             print(f"⚠️ Failed to log sale: {e}")
 
         await interaction.followup.send(
-            f"Sold **{card['current_name']}** for ⛃ {sale_price:,}.\nNew balance: ⛃ {int(float(new_balance)):,}"
+            f"Sold **{esc(card['current_name'])}** for ⛃ {sale_price:,}.\nNew balance: ⛃ {int(float(new_balance)):,}"
         )
 
     @app_commands.command(name="bal", description="Check your coin balance")

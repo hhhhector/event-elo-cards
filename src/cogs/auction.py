@@ -12,6 +12,7 @@ from src.utils.economy_utils import (
     calculate_bank_value,
     calculate_min_bid,
     calculate_min_increment,
+    esc,
     get_rarity,
 )
 
@@ -188,7 +189,7 @@ class BidModal(discord.ui.Modal):
             except discord.HTTPException as e:
                 print(f"  ⚠️ Failed to refresh auction view: {e}")
 
-            announcement = f"<@{user_id}> bid ⛃ {bid_amount:,} on **{self.player_name}**. Min next: ⛃ {next_min:,}."
+            announcement = f"<@{user_id}> bid ⛃ {bid_amount:,} on **{esc(self.player_name)}**. Min next: ⛃ {next_min:,}."
             if prev_user_id and prev_user_id != user_id:
                 announcement += f" (outbid <@{prev_user_id}>)"
             target = self.auction_view.thread or self.auction_view.message.channel
@@ -243,7 +244,7 @@ class AuctionView(discord.ui.View):
             puuid = p["uuid"]
             emoji = RARITY_EMOJI[get_rarity(p.get("current_rank"))]
             bv = calculate_bank_value(float(p["current_drating"]))
-            card_lines.append(f"{emoji} **{p['current_name']}** · ⛃ {bv:,}")
+            card_lines.append(f"{emoji} **{esc(p['current_name'])}** · ⛃ {bv:,}")
 
             current_bid = self.bids.get(puuid, 0)
             next_min = current_bid + self.min_increments[puuid] if current_bid else self.min_bids[puuid]
@@ -304,7 +305,7 @@ class AuctionView(discord.ui.View):
                 try:
                     await self.bot.db.add_card_to_user(user_id, player_uuid)
                     winners_summary.append(
-                        f"<@{user_id}> won {player_name} for ⛃ {bid_amount:,}"
+                        f"<@{user_id}> won **{esc(player_name)}** for ⛃ {bid_amount:,}"
                     )
                     print(f"    ✅ Card awarded.")
                 except Exception as e:
@@ -325,6 +326,12 @@ class AuctionView(discord.ui.View):
                     print("  ✅ Auction close message sent.")
                 except discord.HTTPException as e:
                     print(f"  ⚠️ Failed to send auction close message: {e}")
+                if self.thread:
+                    try:
+                        await self.thread.edit(archived=True)
+                        print("  ✅ Bid thread archived.")
+                    except discord.HTTPException as e:
+                        print(f"  ⚠️ Failed to archive bid thread: {e}")
 
             # Finalize logs
             if self.auction_id:

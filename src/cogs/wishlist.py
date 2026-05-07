@@ -5,7 +5,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from src.utils.autocomplete import player_autocomplete, wishlist_autocomplete
-from src.utils.economy_utils import get_rarity
+from src.utils.economy_utils import esc, get_rarity
 
 RARITY_EMOJI = {
     "X": "🟥", "SS": "🟧", "S": "🟨", "A": "🟪", "B": "🟦", "C": "🟩", "D": "⬜",
@@ -33,7 +33,7 @@ class Wishlist(commands.Cog):
         for e in entries:
             emoji = RARITY_EMOJI[get_rarity(e["current_rank"])]
             rating = int(float(e["current_drating"]))
-            lines.append(f"{emoji} **{e['current_name']}** `{rating}`")
+            lines.append(f"{emoji} **{esc(e['current_name'])}** `{rating}`")
 
         embed = discord.Embed(
             title=f"{interaction.user.display_name}'s Wishlist",
@@ -63,7 +63,7 @@ class Wishlist(commands.Cog):
         if added:
             player = await self.bot.db.get_player_extended_stats(player_id)
             name = player["current_name"] if player else player_id
-            await interaction.followup.send(f"Added **{name}** to your wishlist.", ephemeral=False)
+            await interaction.followup.send(f"Added **{esc(name)}** to your wishlist.", ephemeral=False)
         else:
             await interaction.followup.send("That player is already on your wishlist.", ephemeral=False)
 

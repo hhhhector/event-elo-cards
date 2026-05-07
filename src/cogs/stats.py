@@ -10,7 +10,7 @@ from discord.ext import commands, tasks
 
 from src import config
 from src.utils.autocomplete import player_autocomplete
-from src.utils.economy_utils import get_rarity
+from src.utils.economy_utils import esc, get_rarity
 
 try:
     import plotly.graph_objects as go
@@ -362,13 +362,14 @@ class Stats(commands.Cog):
 
         total = ranks["total_users"]
 
-        def fmt_rank(r) -> str:
-            return f"#{r:,} / {total:,}" if r is not None else f"Unranked / {total:,}"
+        def fmt_rank(r, val) -> str:
+            rank_str = f"#{r:,} / {total:,}" if r is not None else f"Unranked / {total:,}"
+            return f"⛃ {int(val):,} ({rank_str})"
 
         lines = (
-            f"**Coins:** {fmt_rank(ranks['coins_rank'])}\n"
-            f"**Portfolio:** {fmt_rank(ranks['portfolio_rank'])}\n"
-            f"**Combined:** {fmt_rank(ranks['combined_rank'])}"
+            f"**Coins:** {fmt_rank(ranks['coins_rank'], ranks['coins'])}\n"
+            f"**Portfolio:** {fmt_rank(ranks['portfolio_rank'], ranks['portfolio'])}\n"
+            f"**Combined:** {fmt_rank(ranks['combined_rank'], ranks['combined'])}"
         )
         embed = discord.Embed(
             title=f"{interaction.user.display_name}'s Ranks",
@@ -439,7 +440,7 @@ class Stats(commands.Cog):
         lines = []
         for c in cards:
             suffix = " (Archived)" if c["is_archived"] else ""
-            lines.append(f"{emoji} **{player_name}** `{rating}` · <@{int(c['owner_id'])}>{suffix}")
+            lines.append(f"{emoji} **{esc(player_name)}** `{rating}` · <@{int(c['owner_id'])}>{suffix}")
 
         embed = discord.Embed(
             title=f"Existing {player_name} cards",

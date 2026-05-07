@@ -31,6 +31,7 @@ class TCG_Bot(commands.Bot):
             "src.cogs.stats",
             "src.cogs.trade",
             "src.cogs.wishlist",
+            "src.cogs.market",
         ]
         for cog in cogs:
             try:

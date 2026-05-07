@@ -10,6 +10,8 @@ from src.utils.card_generator import generate_card_image
 from src.utils.economy_utils import (
     calculate_bank_value,
     calculate_yield_value,
+    esc,
+    get_rank_bar,
     get_rarity,
     sell_hold_remaining,
 )
@@ -63,7 +65,7 @@ class ArchiveConfirmView(discord.ui.View):
             item.disabled = True
         if success:
             await interaction.response.edit_message(content="Done.", embed=None, view=self)
-            await interaction.channel.send(f"<@{self.owner_id}> archived **{self.card_name}**.")
+            await interaction.channel.send(f"<@{self.owner_id}> archived **{esc(self.card_name)}**.")
         else:
             await interaction.response.edit_message(
                 content="Failed. Card may have already been sold or moved.",
@@ -124,6 +126,7 @@ class Inventory(commands.Cog):
 
         active_lines = []
         total_yield = 0
+        portfolio_value = 0
         for c in cards:
             rating = int(float(c["current_drating"]))
             rarity = get_rarity(c["current_rank"])
@@ -131,20 +134,22 @@ class Inventory(commands.Cog):
             bv = calculate_bank_value(float(c["current_drating"]))
             yield_val = calculate_yield_value(bv, c["current_rank"])
             total_yield += yield_val
+            portfolio_value += bv
             hold = sell_hold_remaining(c["acquired_at"])
             hold_str = f" · ⧗ {hold}" if hold else ""
             active_lines.append(
-                f"{emoji} **{c['current_name']}** `{rating}` · ⛃ {bv:,} · ⛃ {yield_val:,}/day{hold_str}"
+                f"{emoji} **{esc(c['current_name'])}** `{rating}` · ⛃ {bv:,} · ⛃ {yield_val:,}/day{hold_str}"
             )
 
+        combined = balance + portfolio_value
+        rank_bar = get_rank_bar(combined)
+
         embed = discord.Embed(
-            title=f"{target.display_name}'s Inventory",
+            title=f"{target.display_name}'s Inventory ({len(cards)}/{roster_cap} cards)",
             description="\n".join(active_lines) if active_lines else "No active cards.",
             color=discord.Color.blue(),
         )
-        embed.set_footer(
-            text=f"{len(cards)}/{roster_cap} cards · ⛃ {balance:,} · ⛃ {total_yield:,}/day"
-        )
+        embed.set_footer(text=f"{rank_bar} · ⛃ {balance:,} · ⛃ {total_yield:,}/day")
 
         if archived:
             archived_lines = []
@@ -154,7 +159,7 @@ class Inventory(commands.Cog):
                 emoji = RARITY_EMOJI[rarity]
                 bv = calculate_bank_value(float(c["current_drating"]))
                 archived_lines.append(
-                    f"{emoji} **{c['current_name']}** `{rating}` · ⛃ {bv:,}"
+                    f"{emoji} **{esc(c['current_name'])}** `{rating}` · ⛃ {bv:,}"
                 )
             embed.add_field(
                 name=f"Archived ({len(archived)})",

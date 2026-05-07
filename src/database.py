@@ -574,6 +574,105 @@ class Database:
 
                 return "success"
 
+    async def create_offer(
+        self,
+        seller_id: int,
+        buyer_id: int,
+        card_id: str,
+        coin_amount: int,
+    ) -> str:
+        query = """
+        INSERT INTO discord_tcg.coin_trades (seller_id, buyer_id, card_id, coin_amount)
+        VALUES ($1, $2, $3, $4)
+        RETURNING id
+        """
+        async with self.pool.acquire() as conn:
+            return str(await conn.fetchval(
+                query, str(seller_id), str(buyer_id), card_id, coin_amount
+            ))
+
+    async def find_and_execute_offer(
+        self,
+        seller_id: int,
+        buyer_id: int,
+        card_id: str,
+        coin_amount: int,
+    ) -> str:
+        """
+        Atomically find a matching pending offer and execute it.
+        Returns: 'success' | 'not_found' | 'expired' | 'card_moved' | 'insufficient_funds' | 'roster_full'
+        """
+        async with self.pool.acquire() as conn:
+            async with conn.transaction():
+                offer = await conn.fetchrow(
+                    """
+                    SELECT id, created_at
+                    FROM discord_tcg.coin_trades
+                    WHERE seller_id = $1
+                      AND buyer_id = $2
+                      AND card_id = $3
+                      AND coin_amount = $4
+                      AND resolved = FALSE
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    FOR UPDATE
+                    """,
+                    str(seller_id), str(buyer_id), card_id, coin_amount,
+                )
+
+                if offer is None:
+                    return "not_found"
+
+                created_at = offer["created_at"].replace(tzinfo=timezone.utc)
+                if datetime.now(timezone.utc) - created_at > timedelta(minutes=5):
+                    return "expired"
+
+                seller_owns = await conn.fetchval(
+                    "SELECT COUNT(*) FROM discord_tcg.cards WHERE id = $1 AND owner_id = $2",
+                    card_id, str(seller_id),
+                )
+                if not seller_owns:
+                    return "card_moved"
+
+                buyer_coins = await conn.fetchval(
+                    "SELECT coins FROM discord_tcg.users WHERE discord_id = $1",
+                    str(buyer_id),
+                )
+                if buyer_coins is None or float(buyer_coins) < coin_amount:
+                    return "insufficient_funds"
+
+                roster_row = await conn.fetchrow(
+                    """
+                    SELECT u.roster_cap, COUNT(c.id) AS card_count
+                    FROM discord_tcg.users u
+                    LEFT JOIN discord_tcg.cards c ON c.owner_id = u.discord_id
+                    WHERE u.discord_id = $1
+                    GROUP BY u.roster_cap
+                    """,
+                    str(buyer_id),
+                )
+                if roster_row and int(roster_row["card_count"]) >= int(roster_row["roster_cap"]):
+                    return "roster_full"
+
+                await conn.execute(
+                    "UPDATE discord_tcg.cards SET owner_id = $1, acquired_at = NOW() WHERE id = $2",
+                    str(buyer_id), card_id,
+                )
+                await conn.execute(
+                    "UPDATE discord_tcg.users SET coins = coins - $1 WHERE discord_id = $2",
+                    coin_amount, str(buyer_id),
+                )
+                await conn.execute(
+                    "UPDATE discord_tcg.users SET coins = coins + $1 WHERE discord_id = $2",
+                    coin_amount, str(seller_id),
+                )
+                await conn.execute(
+                    "UPDATE discord_tcg.coin_trades SET resolved = TRUE WHERE id = $1",
+                    offer["id"],
+                )
+
+                return "success"
+
     async def get_user_ranks(self, discord_id: int) -> Optional[asyncpg.Record]:
         """Returns coins_rank, portfolio_rank (null if no cards), combined_rank, total_users."""
         query = """
@@ -607,8 +706,14 @@ class Database:
             cr.rank AS coins_rank,
             pr.rank AS portfolio_rank,
             cor.rank AS combined_rank,
+            au.coins,
+            COALESCE(pv.portfolio, 0) AS portfolio,
+            cv.combined,
             (SELECT COUNT(*) FROM discord_tcg.users) AS total_users
         FROM coins_ranked cr
+        JOIN all_users au ON au.discord_id = cr.discord_id
+        LEFT JOIN portfolio_vals pv ON pv.discord_id = cr.discord_id
+        JOIN combined_vals cv ON cv.discord_id = cr.discord_id
         LEFT JOIN portfolio_ranked pr ON pr.discord_id = cr.discord_id
         LEFT JOIN combined_ranked cor ON cor.discord_id = cr.discord_id
         WHERE cr.discord_id = $1
