@@ -439,8 +439,9 @@ class Stats(commands.Cog):
 
         lines = []
         for c in cards:
+            misprint_tag = " [LEFT]" if c["facing_misprint"] else ""
             suffix = " (Archived)" if c["is_archived"] else ""
-            lines.append(f"{emoji} **{esc(player_name)}** `{rating}` · <@{int(c['owner_id'])}>{suffix}")
+            lines.append(f"{emoji} **{esc(player_name)}**{misprint_tag} `{rating}` · <@{int(c['owner_id'])}>{suffix}")
 
         embed = discord.Embed(
             title=f"Existing {player_name} cards",

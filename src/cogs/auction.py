@@ -16,6 +16,8 @@ from src.utils.economy_utils import (
     get_rarity,
 )
 
+MISPRINTS_ENABLED = True
+
 RARITY_EMOJI = {
     "X": "🟥", "SS": "🟧", "S": "🟨", "A": "🟪", "B": "🟦", "C": "🟩", "D": "⬜",
 }
@@ -244,7 +246,8 @@ class AuctionView(discord.ui.View):
             puuid = p["uuid"]
             emoji = RARITY_EMOJI[get_rarity(p.get("current_rank"))]
             bv = calculate_bank_value(float(p["current_drating"]))
-            card_lines.append(f"{emoji} **{esc(p['current_name'])}** · ⛃ {bv:,}")
+            misprint_tag = " [LEFT]" if p.get("facing_misprint") else ""
+            card_lines.append(f"{emoji} **{esc(p['current_name'])}**{misprint_tag} · ⛃ {bv:,}")
 
             current_bid = self.bids.get(puuid, 0)
             next_min = current_bid + self.min_increments[puuid] if current_bid else self.min_bids[puuid]
@@ -291,21 +294,20 @@ class AuctionView(discord.ui.View):
 
             winners_summary = []
             for player_uuid, (user_id, bid_amount) in self.highest_bidders.items():
-                player_name = next(
-                    (
-                        p["current_name"]
-                        for p in self.players
-                        if p["uuid"] == player_uuid
-                    ),
-                    "Unknown",
+                player = next(
+                    (p for p in self.players if p["uuid"] == player_uuid),
+                    None,
                 )
+                player_name = player["current_name"] if player else "Unknown"
+                is_misprint = player.get("facing_misprint", False) if player else False
                 print(
                     f"  → Awarding {player_name} to user {user_id} for ⛃ {bid_amount:,}"
                 )
                 try:
-                    await self.bot.db.add_card_to_user(user_id, player_uuid)
+                    await self.bot.db.add_card_to_user(user_id, player_uuid, facing_misprint=is_misprint)
+                    misprint_tag = " [LEFT]" if is_misprint else ""
                     winners_summary.append(
-                        f"<@{user_id}> won **{esc(player_name)}** for ⛃ {bid_amount:,}"
+                        f"<@{user_id}> won **{esc(player_name)}**{misprint_tag} for ⛃ {bid_amount:,}"
                     )
                     print(f"    ✅ Card awarded.")
                 except Exception as e:
@@ -467,7 +469,7 @@ class Auction(commands.Cog):
         print(f"  Generating images for {len(players)} cards...")
         player_images = []
         for p in players:
-            img_buffer = await generate_card_image(dict(p))
+            img_buffer = await generate_card_image(dict(p), facing_misprint=p.get("facing_misprint", False))
             player_images.append(img_buffer)
             print(f"    ✅ Image generated: {p['current_name']}")
 
@@ -496,6 +498,7 @@ class Auction(commands.Cog):
                     bv,
                     mb,
                     mi,
+                    facing_misprint=p.get("facing_misprint", False),
                 )
                 auction_card_ids[p["uuid"]] = card_id
         except Exception as e:
@@ -541,10 +544,20 @@ class Auction(commands.Cog):
         await view.on_timeout()
 
     async def _fire_auto_drop(self):
-        players = await self.bot.db.get_random_unbanned_players(limit=8)
-        if not players:
+        records = await self.bot.db.get_random_unbanned_players(limit=8)
+        if not records:
             print("⚠️ Auto drop skipped: no eligible players found.")
             return
+
+        players = [dict(r) for r in records]
+
+        if MISPRINTS_ENABLED:
+            for p in players:
+                if random.randint(1, 100) == 1:
+                    already_exists = await self.bot.db.player_has_misprint(p["uuid"])
+                    if not already_exists:
+                        p["facing_misprint"] = True
+                        print(f"  ✨ Misprint rolled for {p['current_name']}")
 
         await self.bot.db.set_auction_active(True)
         print(f"🃏 Auto drop fired ({len(players)} cards).")

@@ -137,8 +137,9 @@ class Inventory(commands.Cog):
             portfolio_value += bv
             hold = sell_hold_remaining(c["acquired_at"])
             hold_str = f" · ⧗ {hold}" if hold else ""
+            misprint_tag = " [LEFT]" if c.get("facing_misprint") else ""
             active_lines.append(
-                f"{emoji} **{esc(c['current_name'])}** `{rating}` · ⛃ {bv:,} · ⛃ {yield_val:,}/day{hold_str}"
+                f"{emoji} **{esc(c['current_name'])}**{misprint_tag} `{rating}` · ⛃ {bv:,} · ⛃ {yield_val:,}/day{hold_str}"
             )
 
         combined = balance + portfolio_value
@@ -158,8 +159,9 @@ class Inventory(commands.Cog):
                 rarity = get_rarity(c["current_rank"])
                 emoji = RARITY_EMOJI[rarity]
                 bv = calculate_bank_value(float(c["current_drating"]))
+                misprint_tag = " [LEFT]" if c.get("facing_misprint") else ""
                 archived_lines.append(
-                    f"{emoji} **{esc(c['current_name'])}** `{rating}` · ⛃ {bv:,}"
+                    f"{emoji} **{esc(c['current_name'])}**{misprint_tag} `{rating}` · ⛃ {bv:,}"
                 )
             embed.add_field(
                 name=f"Archived ({len(archived)})",
@@ -214,7 +216,8 @@ class Inventory(commands.Cog):
             self.bot.db.get_player_card_counts(target_card["player_uuid"]),
         )
         image_buffer = await generate_card_image(
-            dict(extended_stats) if extended_stats else dict(target_card)
+            dict(extended_stats) if extended_stats else dict(target_card),
+            facing_misprint=bool(target_card.get("facing_misprint")),
         )
         file = discord.File(fp=image_buffer, filename="card.png")
 

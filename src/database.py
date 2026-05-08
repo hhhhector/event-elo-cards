@@ -75,7 +75,8 @@ class Database:
     async def get_user_cards(self, discord_id: int) -> List[asyncpg.Record]:
         # Join cards with players to get the drating & name
         query = """
-        SELECT c.id as card_id, c.player_uuid, c.acquired_at, p.current_name, p.current_drating, p.current_rank
+        SELECT c.id as card_id, c.player_uuid, c.acquired_at, c.facing_misprint,
+               p.current_name, p.current_drating, p.current_rank
         FROM discord_tcg.cards c
         JOIN event_elo.players p ON c.player_uuid = p.uuid
         WHERE c.owner_id = $1
@@ -84,14 +85,14 @@ class Database:
         async with self.pool.acquire() as conn:
             return await conn.fetch(query, str(discord_id))
 
-    async def add_card_to_user(self, owner_id: int, player_uuid: str) -> int:
+    async def add_card_to_user(self, owner_id: int, player_uuid: str, facing_misprint: bool = False) -> int:
         query = """
-        INSERT INTO discord_tcg.cards (owner_id, player_uuid, acquired_at)
-        VALUES ($1, $2, CURRENT_TIMESTAMP)
+        INSERT INTO discord_tcg.cards (owner_id, player_uuid, acquired_at, facing_misprint)
+        VALUES ($1, $2, CURRENT_TIMESTAMP, $3)
         RETURNING id
         """
         async with self.pool.acquire() as conn:
-            return await conn.fetchval(query, str(owner_id), player_uuid)
+            return await conn.fetchval(query, str(owner_id), player_uuid, facing_misprint)
 
     async def get_random_player_in_rank_range(self, min_rank: int, max_rank: Optional[int] = None) -> Optional[asyncpg.Record]:
         query = f"""
@@ -131,7 +132,8 @@ class Database:
 
     async def get_card_by_id(self, card_id: str, owner_id: int) -> Optional[asyncpg.Record]:
         query = """
-        SELECT c.id as card_id, c.player_uuid, c.acquired_at, p.current_name, p.current_drating, p.current_rank
+        SELECT c.id as card_id, c.player_uuid, c.acquired_at, c.facing_misprint,
+               p.current_name, p.current_drating, p.current_rank
         FROM discord_tcg.cards c
         JOIN event_elo.players p ON c.player_uuid = p.uuid
         WHERE c.id = $1 AND c.owner_id = $2
@@ -338,16 +340,17 @@ class Database:
         bank_value: int,
         min_bid: int,
         min_increment: int,
+        facing_misprint: bool = False,
     ) -> str:
         query = """
         INSERT INTO discord_tcg.auction_cards
-            (auction_id, player_uuid, rating, rank, bank_value, min_bid, min_increment)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+            (auction_id, player_uuid, rating, rank, bank_value, min_bid, min_increment, facing_misprint)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING id
         """
         async with self.pool.acquire() as conn:
             return str(await conn.fetchval(
-                query, auction_id, player_uuid, rating, rank, bank_value, min_bid, min_increment
+                query, auction_id, player_uuid, rating, rank, bank_value, min_bid, min_increment, facing_misprint
             ))
 
     async def log_bid(self, auction_card_id: str, user_id: int, amount: int) -> str:
@@ -752,20 +755,20 @@ class Database:
         async with self.pool.acquire() as conn:
             async with conn.transaction():
                 card = await conn.fetchrow(
-                    "DELETE FROM discord_tcg.cards WHERE id = $1 AND owner_id = $2 RETURNING id, player_uuid, acquired_at",
+                    "DELETE FROM discord_tcg.cards WHERE id = $1 AND owner_id = $2 RETURNING id, player_uuid, acquired_at, facing_misprint",
                     card_id, str(owner_id),
                 )
                 if card is None:
                     return False
                 await conn.execute(
-                    "INSERT INTO discord_tcg.archived_cards (id, owner_id, player_uuid, acquired_at) VALUES ($1, $2, $3, $4)",
-                    card["id"], str(owner_id), card["player_uuid"], card["acquired_at"],
+                    "INSERT INTO discord_tcg.archived_cards (id, owner_id, player_uuid, acquired_at, facing_misprint) VALUES ($1, $2, $3, $4, $5)",
+                    card["id"], str(owner_id), card["player_uuid"], card["acquired_at"], card["facing_misprint"],
                 )
                 return True
 
     async def get_archived_cards(self, discord_id: int) -> List[asyncpg.Record]:
         query = """
-        SELECT ac.id AS card_id, ac.player_uuid, ac.acquired_at, ac.archived_at,
+        SELECT ac.id AS card_id, ac.player_uuid, ac.acquired_at, ac.archived_at, ac.facing_misprint,
                p.current_name, p.current_drating, p.current_rank
         FROM discord_tcg.archived_cards ac
         JOIN event_elo.players p ON ac.player_uuid = p.uuid
@@ -777,7 +780,7 @@ class Database:
 
     async def get_archived_card_by_id(self, card_id: str, owner_id: int) -> Optional[asyncpg.Record]:
         query = """
-        SELECT ac.id AS card_id, ac.player_uuid, ac.acquired_at, ac.archived_at,
+        SELECT ac.id AS card_id, ac.player_uuid, ac.acquired_at, ac.archived_at, ac.facing_misprint,
                p.current_name, p.current_drating, p.current_rank
         FROM discord_tcg.archived_cards ac
         JOIN event_elo.players p ON ac.player_uuid = p.uuid
@@ -785,6 +788,17 @@ class Database:
         """
         async with self.pool.acquire() as conn:
             return await conn.fetchrow(query, card_id, str(owner_id))
+
+    async def player_has_misprint(self, player_uuid: str) -> bool:
+        query = """
+        SELECT EXISTS (
+            SELECT 1 FROM discord_tcg.cards WHERE player_uuid = $1 AND facing_misprint = TRUE
+            UNION ALL
+            SELECT 1 FROM discord_tcg.archived_cards WHERE player_uuid = $1 AND facing_misprint = TRUE
+        )
+        """
+        async with self.pool.acquire() as conn:
+            return await conn.fetchval(query, player_uuid)
 
     async def get_player_card_counts(self, player_uuid: str) -> asyncpg.Record:
         query = """
@@ -839,13 +853,13 @@ class Database:
 
     async def get_cards_by_player_uuid(self, player_uuid: str) -> List[asyncpg.Record]:
         query = """
-        SELECT c.id AS card_id, c.owner_id, p.current_name, p.current_drating, p.current_rank,
+        SELECT c.id AS card_id, c.owner_id, c.facing_misprint, p.current_name, p.current_drating, p.current_rank,
                FALSE AS is_archived
         FROM discord_tcg.cards c
         JOIN event_elo.players p ON c.player_uuid = p.uuid
         WHERE c.player_uuid = $1
         UNION ALL
-        SELECT ac.id AS card_id, ac.owner_id, p.current_name, p.current_drating, p.current_rank,
+        SELECT ac.id AS card_id, ac.owner_id, ac.facing_misprint, p.current_name, p.current_drating, p.current_rank,
                TRUE AS is_archived
         FROM discord_tcg.archived_cards ac
         JOIN event_elo.players p ON ac.player_uuid = p.uuid

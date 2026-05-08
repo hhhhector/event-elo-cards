@@ -13,7 +13,7 @@ from src.utils.economy_utils import (
 API_BASE_URL = "https://event-elo-satori.vercel.app/api/generate-card"
 
 
-async def generate_card_image(stats: Dict[str, Any]) -> io.BytesIO:
+async def generate_card_image(stats: Dict[str, Any], facing_misprint: bool = False) -> io.BytesIO:
     """
     Fetches the card image from the Vercel Satori API.
     """
@@ -48,6 +48,9 @@ async def generate_card_image(stats: Dict[str, Any]) -> io.BytesIO:
         "yield": yield_value,
         "rarity": get_rarity(rank) if rank != "N/A" else "D",
     }
+
+    if facing_misprint:
+        params["facing"] = "left"
 
     # URL encoded parameters
     query_string = urllib.parse.urlencode(params)
