@@ -473,7 +473,10 @@ class Auction(commands.Cog):
             player_images.append(img_buffer)
             print(f"    ✅ Image generated: {p['current_name']}")
 
+        t0 = datetime.now(timezone.utc)
         combined_image = await create_card_grid(player_images, cols=4)
+        stitch_ms = int((datetime.now(timezone.utc) - t0).total_seconds() * 1000)
+        print(f"  🖼️ Card grid stitched in {stitch_ms}ms")
         file = discord.File(fp=combined_image, filename="drop.png")
         duration_seconds = random.randint(7 * 60, 15 * 60)
 

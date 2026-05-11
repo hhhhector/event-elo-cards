@@ -66,14 +66,8 @@ async def generate_card_image(stats: Dict[str, Any], facing_misprint: bool = Fal
             return io.BytesIO(data)
 
 
-async def create_card_grid(
-    image_buffers: list[io.BytesIO], cols: int = 4
-) -> io.BytesIO:
-    """
-    Stitches multiple card images together into a grid (default 3 columns).
-    """
+def _sync_create_card_grid(image_buffers: list[io.BytesIO], cols: int) -> io.BytesIO:
     import math
-
     from PIL import Image
 
     images = [Image.open(buffer) for buffer in image_buffers]
@@ -82,20 +76,20 @@ async def create_card_grid(
 
     card_w = images[0].width
     card_h = images[0].height
-
     rows = math.ceil(len(images) / cols)
 
-    grid_w = cols * card_w
-    grid_h = rows * card_h
-
-    combined = Image.new("RGBA", (grid_w, grid_h))
-
+    combined = Image.new("RGBA", (cols * card_w, rows * card_h))
     for index, img in enumerate(images):
-        x = (index % cols) * card_w
-        y = (index // cols) * card_h
-        combined.paste(img, (x, y))
+        combined.paste(img, ((index % cols) * card_w, (index // cols) * card_h))
 
     out_buffer = io.BytesIO()
     combined.save(out_buffer, format="PNG")
     out_buffer.seek(0)
     return out_buffer
+
+
+async def create_card_grid(
+    image_buffers: list[io.BytesIO], cols: int = 4
+) -> io.BytesIO:
+    import asyncio
+    return await asyncio.to_thread(_sync_create_card_grid, image_buffers, cols)
