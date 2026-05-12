@@ -152,8 +152,8 @@ class Inventory(commands.Cog):
         )
         embed.set_footer(text=f"{rank_bar} · ⛃ {balance:,} · ⛃ {total_yield:,}/day")
 
+        archived_lines = []
         if archived:
-            archived_lines = []
             for c in archived:
                 rating = int(float(c["current_drating"]))
                 rarity = get_rarity(c["current_rank"])
@@ -163,13 +163,28 @@ class Inventory(commands.Cog):
                 archived_lines.append(
                     f"{emoji} **{esc(c['current_name'])}**{misprint_tag} `{rating}` · ⛃ {bv:,}"
                 )
+
+        archived_value = "\n".join(archived_lines)
+        if archived_lines and len(archived_value) <= 1024:
             embed.add_field(
                 name=f"Archived ({len(archived)})",
-                value="\n".join(archived_lines),
+                value=archived_value,
                 inline=False,
             )
-
-        await interaction.followup.send(embed=embed)
+            await interaction.followup.send(embed=embed)
+        elif archived_lines:
+            await interaction.followup.send(embed=embed)
+            current_chunk = f"**Archived ({len(archived)}):**\n"
+            for line in archived_lines:
+                if len(current_chunk) + len(line) + 1 > 2000:
+                    await interaction.followup.send(current_chunk.rstrip())
+                    current_chunk = line + "\n"
+                else:
+                    current_chunk += line + "\n"
+            if current_chunk.strip():
+                await interaction.followup.send(current_chunk.rstrip())
+        else:
+            await interaction.followup.send(embed=embed)
 
     @app_commands.command(
         name="view", description="View a specific card's image and details"
