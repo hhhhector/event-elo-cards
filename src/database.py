@@ -583,15 +583,16 @@ class Database:
         buyer_id: int,
         card_id: str,
         coin_amount: int,
+        offer_type: str,
     ) -> str:
         query = """
-        INSERT INTO discord_tcg.coin_trades (seller_id, buyer_id, card_id, coin_amount)
-        VALUES ($1, $2, $3, $4)
+        INSERT INTO discord_tcg.coin_trades (seller_id, buyer_id, card_id, coin_amount, offer_type)
+        VALUES ($1, $2, $3, $4, $5)
         RETURNING id
         """
         async with self.pool.acquire() as conn:
             return str(await conn.fetchval(
-                query, str(seller_id), str(buyer_id), card_id, coin_amount
+                query, str(seller_id), str(buyer_id), card_id, coin_amount, offer_type
             ))
 
     async def find_and_execute_offer(
@@ -600,9 +601,11 @@ class Database:
         buyer_id: int,
         card_id: str,
         coin_amount: int,
+        matching_offer_type: str,
     ) -> str:
         """
         Atomically find a matching pending offer and execute it.
+        matching_offer_type: the offer_type to look for ('buy' when called from /sell, 'sell' when called from /buy).
         Returns: 'success' | 'not_found' | 'expired' | 'card_moved' | 'insufficient_funds' | 'roster_full'
         """
         async with self.pool.acquire() as conn:
@@ -615,12 +618,13 @@ class Database:
                       AND buyer_id = $2
                       AND card_id = $3
                       AND coin_amount = $4
+                      AND offer_type = $5
                       AND resolved = FALSE
                     ORDER BY created_at DESC
                     LIMIT 1
                     FOR UPDATE
                     """,
-                    str(seller_id), str(buyer_id), card_id, coin_amount,
+                    str(seller_id), str(buyer_id), card_id, coin_amount, matching_offer_type,
                 )
 
                 if offer is None:

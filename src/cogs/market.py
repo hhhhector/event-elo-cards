@@ -43,6 +43,7 @@ class Market(commands.Cog):
             buyer_id=user.id,
             card_id=card,
             coin_amount=price,
+            matching_offer_type="buy",
         )
 
         if result == "success":
@@ -68,6 +69,7 @@ class Market(commands.Cog):
                 buyer_id=user.id,
                 card_id=card,
                 coin_amount=price,
+                offer_type="sell",
             )
             await interaction.followup.send(
                 f"**Sale Proposed**\n"
@@ -118,6 +120,7 @@ class Market(commands.Cog):
             buyer_id=interaction.user.id,
             card_id=card,
             coin_amount=price,
+            matching_offer_type="sell",
         )
 
         if result == "success":
@@ -148,6 +151,7 @@ class Market(commands.Cog):
                 buyer_id=interaction.user.id,
                 card_id=card,
                 coin_amount=price,
+                offer_type="buy",
             )
             await interaction.followup.send(
                 f"**Buy Offer Proposed**\n"
