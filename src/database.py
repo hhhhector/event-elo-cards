@@ -661,6 +661,23 @@ class Database:
                 if roster_row and int(roster_row["card_count"]) >= int(roster_row["roster_cap"]):
                     return "roster_full"
 
+                buyer_has_bid = await conn.fetchval(
+                    """
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM discord_tcg.bids b
+                        JOIN discord_tcg.auction_cards ac ON b.auction_card_id = ac.id
+                        JOIN discord_tcg.auctions a ON ac.auction_id = a.id
+                        WHERE b.user_id = $1
+                          AND b.was_refunded = FALSE
+                          AND a.closed_at IS NULL
+                    )
+                    """,
+                    str(buyer_id),
+                )
+                if buyer_has_bid:
+                    return "active_bid"
+
                 await conn.execute(
                     "UPDATE discord_tcg.cards SET owner_id = $1, acquired_at = NOW() WHERE id = $2",
                     str(buyer_id), card_id,
@@ -740,6 +757,22 @@ class Database:
         async with self.pool.acquire() as conn:
             return await conn.fetch(query)
 
+    async def user_has_active_bid(self, discord_id: int) -> bool:
+        """True if the user is the current highest bidder on any open auction."""
+        query = """
+        SELECT EXISTS (
+            SELECT 1
+            FROM discord_tcg.bids b
+            JOIN discord_tcg.auction_cards ac ON b.auction_card_id = ac.id
+            JOIN discord_tcg.auctions a ON ac.auction_id = a.id
+            WHERE b.user_id = $1
+              AND b.was_refunded = FALSE
+              AND a.closed_at IS NULL
+        )
+        """
+        async with self.pool.acquire() as conn:
+            return await conn.fetchval(query, str(discord_id))
+
     async def get_user_combined_wealth(self, discord_id: int) -> Optional[float]:
         query = """
         SELECT u.coins + COALESCE(SUM(10000.0 * POWER(p.current_drating / 2200.0, 3)), 0) AS combined
@@ -812,6 +845,15 @@ class Database:
         """
         async with self.pool.acquire() as conn:
             return await conn.fetchrow(query, player_uuid)
+
+    async def burn_archived_card(self, card_id: str, owner_id: int) -> bool:
+        """Permanently delete an archived card. Returns True on success."""
+        async with self.pool.acquire() as conn:
+            status = await conn.execute(
+                "DELETE FROM discord_tcg.archived_cards WHERE id = $1 AND owner_id = $2",
+                card_id, str(owner_id),
+            )
+            return status == "DELETE 1"
 
     async def add_to_wishlist(self, discord_id: int, player_uuid: str) -> bool:
         async with self.pool.acquire() as conn:

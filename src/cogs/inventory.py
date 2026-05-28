@@ -5,7 +5,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from src.utils.autocomplete import all_cards_autocomplete, card_autocomplete
+from src.utils.autocomplete import all_cards_autocomplete, archived_card_autocomplete, card_autocomplete
 from src.utils.card_generator import generate_card_image
 from src.utils.economy_utils import (
     calculate_bank_value,
@@ -80,6 +80,46 @@ class ArchiveConfirmView(discord.ui.View):
         await interaction.response.edit_message(
             content="Cancelled.", embed=None, view=self
         )
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+        if self.message:
+            try:
+                await self.message.edit(content="Timed out.", embed=None, view=self)
+            except discord.HTTPException:
+                pass
+
+
+class BurnConfirmView(discord.ui.View):
+    def __init__(self, bot, card_id: str, owner_id: int, card_name: str):
+        super().__init__(timeout=30)
+        self.bot = bot
+        self.card_id = card_id
+        self.owner_id = owner_id
+        self.card_name = card_name
+        self.message: discord.Message | None = None
+
+    @discord.ui.button(label="Burn", style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        success = await self.bot.db.burn_archived_card(self.card_id, self.owner_id)
+        for item in self.children:
+            item.disabled = True
+        if success:
+            await interaction.response.edit_message(content="Done.", embed=None, view=self)
+            await interaction.channel.send(f"<@{self.owner_id}> burned **{esc(self.card_name)}**.")
+        else:
+            await interaction.response.edit_message(
+                content="Failed. Card may have already been deleted.",
+                embed=None,
+                view=self,
+            )
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        for item in self.children:
+            item.disabled = True
+        await interaction.response.edit_message(content="Cancelled.", embed=None, view=self)
 
     async def on_timeout(self):
         for item in self.children:
@@ -328,6 +368,50 @@ class Inventory(commands.Cog):
         msg = await interaction.followup.send(
             embed=embed, view=view, ephemeral=True, wait=True
         )
+        view.message = msg
+
+
+    @app_commands.command(
+        name="burn",
+        description="Permanently destroy an archived card. This cannot be undone.",
+    )
+    @app_commands.describe(card_id="The archived card to burn")
+    @app_commands.autocomplete(card_id=archived_card_autocomplete)
+    async def burn_card(self, interaction: discord.Interaction, card_id: str):
+        if getattr(self.bot, "db", None) is None:
+            return await interaction.response.send_message(
+                "Database not connected.", ephemeral=True
+            )
+
+        await interaction.response.defer(ephemeral=True)
+
+        if await self.bot.db.get_user_coins(interaction.user.id) is None:
+            return await interaction.followup.send(
+                "You must run /register first.", ephemeral=True
+            )
+
+        card = await self.bot.db.get_archived_card_by_id(card_id, interaction.user.id)
+        if card is None:
+            return await interaction.followup.send(
+                "You don't have an archived card with that ID.", ephemeral=True
+            )
+
+        bv = calculate_bank_value(float(card["current_drating"]))
+        rarity = get_rarity(card.get("current_rank"))
+        color = discord.Color(RARITY_COLOR[rarity])
+
+        embed = discord.Embed(
+            title=f"Burn {card['current_name']}?",
+            description=(
+                "This is **permanent and irreversible**. The card will be gone forever.\n\n"
+                f"**Bank Value:** ⛃ {bv:,}\n"
+                f"**Rarity:** {rarity}"
+            ),
+            color=color,
+        )
+
+        view = BurnConfirmView(self.bot, card_id, interaction.user.id, card["current_name"])
+        msg = await interaction.followup.send(embed=embed, view=view, ephemeral=True, wait=True)
         view.message = msg
 
 

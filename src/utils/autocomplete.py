@@ -58,6 +58,20 @@ async def wishlist_autocomplete(interaction: Interaction, current: str) -> list[
     ][:25]
 
 
+async def archived_card_autocomplete(interaction: Interaction, current: str) -> list[app_commands.Choice[str]]:
+    if getattr(interaction.client, 'db', None) is None:
+        return []
+    archived = await interaction.client.db.get_archived_cards(interaction.user.id)
+    return [
+        app_commands.Choice(
+            name=f"{c['current_name']} (#{c['card_id']})",
+            value=str(c['card_id']),
+        )
+        for c in archived
+        if current.lower() in c['current_name'].lower() or current in str(c['card_id'])
+    ][:25]
+
+
 async def their_card_autocomplete(interaction: Interaction, current: str) -> list[app_commands.Choice[str]]:
     if getattr(interaction.client, 'db', None) is None:
         return []

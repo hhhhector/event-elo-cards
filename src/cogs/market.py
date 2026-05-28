@@ -63,6 +63,11 @@ class Market(commands.Cog):
             await interaction.followup.send(
                 f"{user.display_name}'s roster is full.", ephemeral=True
             )
+        elif result == "active_bid":
+            await interaction.followup.send(
+                f"{user.display_name} has an active bid on an ongoing auction and cannot receive cards right now.",
+                ephemeral=True,
+            )
         elif result == "not_found":
             await self.bot.db.create_offer(
                 seller_id=interaction.user.id,
@@ -115,6 +120,12 @@ class Market(commands.Cog):
                 f"You don't have enough coins (balance: ⛃ {int(float(buyer_coins)):,}).", ephemeral=True
             )
 
+        if await self.bot.db.user_has_active_bid(interaction.user.id):
+            return await interaction.followup.send(
+                "You have an active bid on an ongoing auction. Wait for it to resolve before buying a card.",
+                ephemeral=True,
+            )
+
         result = await self.bot.db.find_and_execute_offer(
             seller_id=user.id,
             buyer_id=interaction.user.id,
@@ -138,6 +149,11 @@ class Market(commands.Cog):
             )
         elif result == "roster_full":
             await interaction.followup.send("Your roster is full.", ephemeral=True)
+        elif result == "active_bid":
+            await interaction.followup.send(
+                "You have an active bid on an ongoing auction. Wait for it to resolve before buying a card.",
+                ephemeral=True,
+            )
         elif result == "not_found":
             roster_info = await self.bot.db.get_user_roster_info(interaction.user.id)
             if roster_info is None:

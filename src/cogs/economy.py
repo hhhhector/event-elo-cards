@@ -1,13 +1,14 @@
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
-from src import config
-from src.utils.economy_utils import calculate_bank_value, esc, sell_hold_remaining
-from src.utils.autocomplete import card_autocomplete
 
-STARTING_BALANCE = 300
+from src import config
+from src.utils.autocomplete import card_autocomplete
+from src.utils.economy_utils import calculate_bank_value, esc, sell_hold_remaining
+
+STARTING_BALANCE = 1000
 
 
 def next_noon_utc(now: datetime) -> datetime:
@@ -15,6 +16,7 @@ def next_noon_utc(now: datetime) -> datetime:
     if now >= today_noon:
         return today_noon + timedelta(days=1)
     return today_noon
+
 
 class Economy(commands.Cog):
     def __init__(self, bot):
@@ -24,24 +26,25 @@ class Economy(commands.Cog):
     def cog_unload(self):
         self.faucet_task.cancel()
 
-    @app_commands.command(name="register", description="Join the game and receive starting coins")
+    @app_commands.command(
+        name="register", description="Join the game and receive starting coins"
+    )
     async def register(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         success = await self.bot.db.register_user(interaction.user.id, STARTING_BALANCE)
         if success:
             await interaction.followup.send(
                 f"Welcome. You have received {STARTING_BALANCE:,} starting coins.",
-                ephemeral=True
+                ephemeral=True,
             )
         else:
             await interaction.followup.send(
-                "You are already registered.",
-                ephemeral=True
+                "You are already registered.", ephemeral=True
             )
 
     @tasks.loop(minutes=1)
     async def faucet_task(self):
-        if getattr(self.bot, 'db', None) is None:
+        if getattr(self.bot, "db", None) is None:
             return
         state = await self.bot.db.get_system_state()
         if not state:
@@ -53,7 +56,9 @@ class Economy(commands.Cog):
         if next_ts is None:
             next_time = next_noon_utc(now)
             await self.bot.db.set_next_dividend_timestamp(next_time)
-            print(f"💰 No dividend timestamp set. Scheduled for {next_time.strftime('%Y-%m-%d %H:%M UTC')}.")
+            print(
+                f"💰 No dividend timestamp set. Scheduled for {next_time.strftime('%Y-%m-%d %H:%M UTC')}."
+            )
             return
 
         next_ts_utc = next_ts.replace(tzinfo=timezone.utc)
@@ -61,7 +66,9 @@ class Economy(commands.Cog):
         if next_ts_utc < now - timedelta(minutes=1):
             next_time = next_noon_utc(now)
             await self.bot.db.set_next_dividend_timestamp(next_time)
-            print(f"💰 Stale dividend timestamp detected. Rescheduled for {next_time.strftime('%Y-%m-%d %H:%M UTC')}.")
+            print(
+                f"💰 Stale dividend timestamp detected. Rescheduled for {next_time.strftime('%Y-%m-%d %H:%M UTC')}."
+            )
             return
 
         if next_ts_utc <= now:
@@ -69,10 +76,14 @@ class Economy(commands.Cog):
                 next_time = next_noon_utc(now)
                 claimed = await self.bot.db.claim_dividend_payout(next_ts, next_time)
                 if not claimed:
-                    print("💰 Dividend payout already claimed by another instance. Skipping.")
+                    print(
+                        "💰 Dividend payout already claimed by another instance. Skipping."
+                    )
                     return
                 await self.bot.db.process_faucet_dividends()
-                print(f"✅ Processed daily dividends! Next payout: {next_time.strftime('%Y-%m-%d %H:%M UTC')}.")
+                print(
+                    f"✅ Processed daily dividends! Next payout: {next_time.strftime('%Y-%m-%d %H:%M UTC')}."
+                )
             except Exception as e:
                 print(f"❌ Error processing dividends: {e}")
 
@@ -81,37 +92,47 @@ class Economy(commands.Cog):
         await self.bot.wait_until_ready()
         print("✅ Faucet task started.")
 
-    @app_commands.command(name="bank", description="Sell a card directly to the bank for instant coins")
+    @app_commands.command(
+        name="bank", description="Sell a card directly to the bank for instant coins"
+    )
     @app_commands.describe(card_id="The card to sell")
     @app_commands.autocomplete(card_id=card_autocomplete)
     async def bank(self, interaction: discord.Interaction, card_id: str):
         await interaction.response.defer()
         card = await self.bot.db.get_card_by_id(card_id, interaction.user.id)
         if card is None:
-            return await interaction.followup.send("You do not own a card with that ID.", ephemeral=True)
+            return await interaction.followup.send(
+                "You do not own a card with that ID.", ephemeral=True
+            )
 
-        hold_remaining = sell_hold_remaining(card['acquired_at'])
+        hold_remaining = sell_hold_remaining(card["acquired_at"])
         if hold_remaining:
             return await interaction.followup.send(
                 f"Cards must be held for 8 hours before selling. Available in {hold_remaining}.",
                 ephemeral=True,
             )
 
-        sale_price = calculate_bank_value(float(card['current_drating']))
-        new_balance = await self.bot.db.sell_card_to_bank(card_id, interaction.user.id, sale_price)
+        sale_price = calculate_bank_value(float(card["current_drating"]))
+        new_balance = await self.bot.db.sell_card_to_bank(
+            card_id, interaction.user.id, sale_price
+        )
 
         if new_balance is None:
-            return await interaction.followup.send("Failed to process transaction.", ephemeral=True)
+            return await interaction.followup.send(
+                "Failed to process transaction.", ephemeral=True
+            )
 
         try:
-            rank_raw = card.get('current_rank')
+            rank_raw = card.get("current_rank")
             rank = int(rank_raw) if rank_raw is not None else None
-            acquired_at = card['acquired_at'].replace(tzinfo=timezone.utc)
-            held_seconds = int((datetime.now(timezone.utc) - acquired_at).total_seconds())
+            acquired_at = card["acquired_at"].replace(tzinfo=timezone.utc)
+            held_seconds = int(
+                (datetime.now(timezone.utc) - acquired_at).total_seconds()
+            )
             await self.bot.db.log_sale(
                 interaction.user.id,
-                card['player_uuid'],
-                float(card['current_drating']),
+                card["player_uuid"],
+                float(card["current_drating"]),
                 rank,
                 sale_price,
                 held_seconds,
@@ -128,8 +149,13 @@ class Economy(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         coins = await self.bot.db.get_user_coins(interaction.user.id)
         if coins is None:
-            return await interaction.followup.send("You must run /register first.", ephemeral=True)
-        await interaction.followup.send(f"Balance: ⛃ **{int(float(coins)):,}**", ephemeral=True)
+            return await interaction.followup.send(
+                "You must run /register first.", ephemeral=True
+            )
+        await interaction.followup.send(
+            f"Balance: ⛃ **{int(float(coins)):,}**", ephemeral=True
+        )
+
 
 async def setup(bot):
     await bot.add_cog(Economy(bot))
