@@ -202,9 +202,25 @@ async def ban_player(player_uuid: str, dry_run: bool, debug: bool = False):
             if player["is_banned"]:
                 log("⚠️  Already marked as banned in event_elo.players — will still process cards.")
 
-            rating = float(player["current_drating"])
+            rating = float(player["current_drating"] or 0)
+            if not rating:
+                last_auction = await conn.fetchrow(
+                    """
+                    SELECT ac.rating FROM discord_tcg.auction_cards ac
+                    JOIN discord_tcg.auctions a ON ac.auction_id = a.id
+                    WHERE ac.player_uuid = $1
+                    ORDER BY a.closed_at DESC NULLS LAST LIMIT 1
+                    """,
+                    player_uuid,
+                )
+                if last_auction:
+                    rating = float(last_auction["rating"])
+                    log(f"  ⚠️  current_drating is NULL — using last auction rating {int(rating)}")
+                else:
+                    log(f"  ⚠️  current_drating is NULL and no auction history found — bank value will be ⛃ 0")
             bv = calculate_bank_value(rating)
-            log(f"  Rating: {int(rating)}  |  Bank value: ⛃ {bv:,}\n")
+            rating_str = str(int(rating)) if rating else "N/A"
+            log(f"  Rating: {rating_str}  |  Bank value: ⛃ {bv:,}\n")
 
             active_cards = await conn.fetch(
                 "SELECT id, owner_id, acquired_at FROM discord_tcg.cards WHERE player_uuid = $1",

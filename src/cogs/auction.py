@@ -41,6 +41,38 @@ def next_drop_delta_seconds() -> int:
     return int(max(min_minutes * 60, min(max_minutes * 60, seconds)))
 
 
+class BidConfirmView(discord.ui.View):
+    def __init__(self, modal: "BidModal", user_id: int, bid_amount: int, target: int):
+        super().__init__(timeout=30)
+        self.modal = modal
+        self.user_id = user_id
+        self.bid_amount = bid_amount
+        self.target = target
+
+    @discord.ui.button(label="Confirm", style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user_id:
+            return await interaction.response.send_message("This isn't your bid.", ephemeral=True)
+        await interaction.response.defer(ephemeral=True)
+        for item in self.children:
+            item.disabled = True
+        await interaction.edit_original_response(content="Confirming bid…", view=self)
+        async with self.modal.auction_view.bid_locks[self.modal.player_uuid]:
+            if self.modal.auction_view._closed:
+                return await interaction.followup.send("This auction has ended.", ephemeral=True)
+            await self.modal._process_bid(interaction, self.user_id, self.bid_amount)
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        for item in self.children:
+            item.disabled = True
+        await interaction.response.edit_message(content="Bid cancelled.", view=self)
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+
+
 class BidModal(discord.ui.Modal):
     def __init__(self, bot, player_uuid, player_name, auction_view, balance: int):
         super().__init__(title=f"Bid on {player_name}")
@@ -76,6 +108,20 @@ class BidModal(discord.ui.Modal):
         await interaction.response.defer()
 
         user_id = interaction.user.id
+
+        current_high_bid = self.auction_view.bids.get(self.player_uuid, 0)
+        min_bid = self.auction_view.min_bids[self.player_uuid]
+        min_inc = self.auction_view.min_increments[self.player_uuid]
+        target = max(min_bid, current_high_bid + min_inc) if current_high_bid else min_bid
+        if bid_amount > 5 * target:
+            view = BidConfirmView(self, user_id, bid_amount, target)
+            await interaction.followup.send(
+                f"⚠️ You're about to bid ⛃ **{bid_amount:,}** on **{esc(self.player_name)}**."
+                f" The minimum next bid is ⛃ {target:,}. Confirm?",
+                view=view,
+                ephemeral=True,
+            )
+            return
 
         async with self.auction_view.bid_locks[self.player_uuid]:
             if self.auction_view._closed:
