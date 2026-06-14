@@ -46,10 +46,9 @@ class UpgradeConfirmView(discord.ui.View):
             )
         else:
             _, new_cap, new_balance = result
-            await interaction.response.edit_message(
-                content=f"Done. Capacity upgraded to **{new_cap} slots**. New balance: ⛃ {new_balance:,}",
-                embed=None,
-                view=self,
+            await interaction.response.edit_message(content="Done.", embed=None, view=self)
+            await interaction.channel.send(
+                f"<@{self.discord_id}> upgraded their inventory to **{new_cap} slots**."
             )
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
