@@ -1,4 +1,5 @@
 import asyncio
+import math
 import uuid
 
 import discord
@@ -89,6 +90,55 @@ class ArchiveConfirmView(discord.ui.View):
                 await self.message.edit(content="Timed out.", embed=None, view=self)
             except discord.HTTPException:
                 pass
+
+
+def build_archived_embed(archived: list, page: int = 0, per_page: int = 20) -> discord.Embed:
+    total = len(archived)
+    total_pages = math.ceil(total / per_page)
+    chunk = archived[page * per_page : (page + 1) * per_page]
+    lines = []
+    for c in chunk:
+        rating = int(float(c["current_drating"]))
+        rarity = get_rarity(c["current_rank"])
+        emoji = RARITY_EMOJI[rarity]
+        bv = calculate_bank_value(float(c["current_drating"]))
+        misprint_tag = " [LEFT]" if c.get("facing_misprint") else ""
+        lines.append(f"{emoji} **{esc(c['current_name'])}**{misprint_tag} `{rating}` · ⛃ {bv:,}")
+    page_str = f" — Page {page + 1}/{total_pages}" if total_pages > 1 else ""
+    return discord.Embed(
+        title=f"Archived ({total}){page_str}",
+        description="\n".join(lines),
+        color=discord.Color.greyple(),
+    )
+
+
+class ArchivedPaginationView(discord.ui.View):
+    def __init__(self, archived: list, per_page: int = 20):
+        super().__init__(timeout=300)
+        self.archived = archived
+        self.per_page = per_page
+        self.page = 0
+        self.total_pages = math.ceil(len(archived) / per_page)
+        self._update_buttons()
+
+    def _update_buttons(self):
+        for item in self.children:
+            if item.label == "◀":
+                item.disabled = self.page == 0
+            elif item.label == "▶":
+                item.disabled = self.page >= self.total_pages - 1
+
+    @discord.ui.button(label="◀", style=discord.ButtonStyle.secondary)
+    async def prev_page(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.page -= 1
+        self._update_buttons()
+        await interaction.response.edit_message(embed=build_archived_embed(self.archived, self.page, self.per_page), view=self)
+
+    @discord.ui.button(label="▶", style=discord.ButtonStyle.secondary)
+    async def next_page(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.page += 1
+        self._update_buttons()
+        await interaction.response.edit_message(embed=build_archived_embed(self.archived, self.page, self.per_page), view=self)
 
 
 class BurnConfirmView(discord.ui.View):
@@ -192,39 +242,14 @@ class Inventory(commands.Cog):
         )
         embed.set_footer(text=f"{rank_bar} · ⛃ {balance:,} · ⛃ {total_yield:,}/day")
 
-        archived_lines = []
-        if archived:
-            for c in archived:
-                rating = int(float(c["current_drating"]))
-                rarity = get_rarity(c["current_rank"])
-                emoji = RARITY_EMOJI[rarity]
-                bv = calculate_bank_value(float(c["current_drating"]))
-                misprint_tag = " [LEFT]" if c.get("facing_misprint") else ""
-                archived_lines.append(
-                    f"{emoji} **{esc(c['current_name'])}**{misprint_tag} `{rating}` · ⛃ {bv:,}"
-                )
+        await interaction.followup.send(embed=embed)
 
-        archived_value = "\n".join(archived_lines)
-        if archived_lines and len(archived_value) <= 1024:
-            embed.add_field(
-                name=f"Archived ({len(archived)})",
-                value=archived_value,
-                inline=False,
-            )
-            await interaction.followup.send(embed=embed)
-        elif archived_lines:
-            await interaction.followup.send(embed=embed)
-            current_chunk = f"**Archived ({len(archived)}):**\n"
-            for line in archived_lines:
-                if len(current_chunk) + len(line) + 1 > 2000:
-                    await interaction.followup.send(current_chunk.rstrip())
-                    current_chunk = line + "\n"
-                else:
-                    current_chunk += line + "\n"
-            if current_chunk.strip():
-                await interaction.followup.send(current_chunk.rstrip())
-        else:
-            await interaction.followup.send(embed=embed)
+        if archived:
+            if len(archived) > 20:
+                view = ArchivedPaginationView(archived)
+                await interaction.followup.send(embed=build_archived_embed(archived), view=view)
+            else:
+                await interaction.followup.send(embed=build_archived_embed(archived))
 
     @app_commands.command(
         name="view", description="View a specific card's image and details"

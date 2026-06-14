@@ -108,6 +108,21 @@ def calculate_min_increment(bank_value: int) -> int:
     return max(1, int(bank_value * 0.05))
 
 
+ROSTER_UPGRADE_PRICES = [
+    10_000,
+    25_000,
+    50_000,
+    100_000,
+    250_000,
+    500_000,
+    1_000_000,
+    2_500_000,
+    5_000_000,
+    10_000_000,
+]
+BASE_ROSTER_CAP = 10
+MAX_ROSTER_CAP = BASE_ROSTER_CAP + len(ROSTER_UPGRADE_PRICES)  # 20
+
 HOLD_HOURS = 8
 
 

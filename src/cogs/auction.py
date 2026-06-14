@@ -19,11 +19,17 @@ from src.utils.economy_utils import (
 MISPRINTS_ENABLED = True
 
 RARITY_EMOJI = {
-    "X": "🟥", "SS": "🟧", "S": "🟨", "A": "🟪", "B": "🟦", "C": "🟩", "D": "⬜",
+    "X": "🟥",
+    "SS": "🟧",
+    "S": "🟨",
+    "A": "🟪",
+    "B": "🟦",
+    "C": "🟩",
+    "D": "⬜",
 }
 
 HOURLY_AVG_MINUTES = {
-    **{h: 25 for h in range(6, 12)},
+    **{h: 15 for h in range(6, 12)},
     **{h: 12 for h in range(12, 16)},
     **{h: 8 for h in range(16, 20)},
     **{h: 5 for h in range(20, 24)},
@@ -50,16 +56,22 @@ class BidConfirmView(discord.ui.View):
         self.target = target
 
     @discord.ui.button(label="Confirm", style=discord.ButtonStyle.danger)
-    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def confirm(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
         if interaction.user.id != self.user_id:
-            return await interaction.response.send_message("This isn't your bid.", ephemeral=True)
+            return await interaction.response.send_message(
+                "This isn't your bid.", ephemeral=True
+            )
         await interaction.response.defer(ephemeral=True)
         for item in self.children:
             item.disabled = True
         await interaction.edit_original_response(content="Confirming bid…", view=self)
         async with self.modal.auction_view.bid_locks[self.modal.player_uuid]:
             if self.modal.auction_view._closed:
-                return await interaction.followup.send("This auction has ended.", ephemeral=True)
+                return await interaction.followup.send(
+                    "This auction has ended.", ephemeral=True
+                )
             await self.modal._process_bid(interaction, self.user_id, self.bid_amount)
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
@@ -112,7 +124,9 @@ class BidModal(discord.ui.Modal):
         current_high_bid = self.auction_view.bids.get(self.player_uuid, 0)
         min_bid = self.auction_view.min_bids[self.player_uuid]
         min_inc = self.auction_view.min_increments[self.player_uuid]
-        target = max(min_bid, current_high_bid + min_inc) if current_high_bid else min_bid
+        target = (
+            max(min_bid, current_high_bid + min_inc) if current_high_bid else min_bid
+        )
         if bid_amount > 5 * target:
             view = BidConfirmView(self, user_id, bid_amount, target)
             await interaction.followup.send(
@@ -293,10 +307,16 @@ class AuctionView(discord.ui.View):
             emoji = RARITY_EMOJI[get_rarity(p.get("current_rank"))]
             bv = calculate_bank_value(float(p["current_drating"]))
             misprint_tag = " [LEFT]" if p.get("facing_misprint") else ""
-            card_lines.append(f"{emoji} **{esc(p['current_name'])}**{misprint_tag} · ⛃ {bv:,}")
+            card_lines.append(
+                f"{emoji} **{esc(p['current_name'])}**{misprint_tag} · ⛃ {bv:,}"
+            )
 
             current_bid = self.bids.get(puuid, 0)
-            next_min = current_bid + self.min_increments[puuid] if current_bid else self.min_bids[puuid]
+            next_min = (
+                current_bid + self.min_increments[puuid]
+                if current_bid
+                else self.min_bids[puuid]
+            )
             bid_lines.append(f"⛃ {next_min:,}")
 
             bidder = self.highest_bidders.get(puuid)
@@ -350,7 +370,9 @@ class AuctionView(discord.ui.View):
                     f"  → Awarding {player_name} to user {user_id} for ⛃ {bid_amount:,}"
                 )
                 try:
-                    await self.bot.db.add_card_to_user(user_id, player_uuid, facing_misprint=is_misprint)
+                    await self.bot.db.add_card_to_user(
+                        user_id, player_uuid, facing_misprint=is_misprint
+                    )
                     misprint_tag = " [LEFT]" if is_misprint else ""
                     winners_summary.append(
                         f"<@{user_id}> won **{esc(player_name)}**{misprint_tag} for ⛃ {bid_amount:,}"
@@ -515,7 +537,9 @@ class Auction(commands.Cog):
         print(f"  Generating images for {len(players)} cards...")
         player_images = []
         for p in players:
-            img_buffer = await generate_card_image(dict(p), facing_misprint=p.get("facing_misprint", False))
+            img_buffer = await generate_card_image(
+                dict(p), facing_misprint=p.get("facing_misprint", False)
+            )
             player_images.append(img_buffer)
             print(f"    ✅ Image generated: {p['current_name']}")
 
@@ -563,7 +587,11 @@ class Auction(commands.Cog):
             [str(p["uuid"]) for p in players]
         )
         wishlist_mentions = " ".join(f"<@{row['discord_id']}>" for row in wishlist_rows)
-        ping_str = f"<@&{config.AUCTION_PING_ROLE_ID}> {wishlist_mentions}" if wishlist_mentions else f"<@&{config.AUCTION_PING_ROLE_ID}>"
+        ping_str = (
+            f"<@&{config.AUCTION_PING_ROLE_ID}> {wishlist_mentions}"
+            if wishlist_mentions
+            else f"<@&{config.AUCTION_PING_ROLE_ID}>"
+        )
         content = f"{ping_str} **{title}**\nBid below. One active bid per drop."
 
         channel = self.bot.get_channel(config.DROP_CHANNEL_ID)
@@ -582,7 +610,9 @@ class Auction(commands.Cog):
         )
         view.message = msg
         try:
-            view.thread = await msg.create_thread(name="Bid Activity", auto_archive_duration=60)
+            view.thread = await msg.create_thread(
+                name="Bid Activity", auto_archive_duration=60
+            )
             print(f"  ✅ Bid thread created.")
         except discord.HTTPException as e:
             print(f"  ⚠️ Failed to create bid thread: {e}. Bids will post to channel.")

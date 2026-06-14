@@ -2,6 +2,8 @@ import asyncpg
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List
 
+from src.utils.economy_utils import ROSTER_UPGRADE_PRICES, BASE_ROSTER_CAP, MAX_ROSTER_CAP
+
 class Database:
     def __init__(self, pool: asyncpg.Pool):
         self.pool = pool
@@ -845,6 +847,36 @@ class Database:
         """
         async with self.pool.acquire() as conn:
             return await conn.fetchrow(query, player_uuid)
+
+    async def upgrade_roster_cap(self, discord_id: int):
+        """
+        Returns ("success", new_cap, new_balance) or one of:
+        "not_registered", "already_maxed", "insufficient_funds".
+        """
+        async with self.pool.acquire() as conn:
+            async with conn.transaction():
+                row = await conn.fetchrow(
+                    "SELECT coins, roster_cap FROM discord_tcg.users WHERE discord_id = $1 FOR UPDATE",
+                    str(discord_id),
+                )
+                if row is None:
+                    return "not_registered"
+                cap = int(row["roster_cap"])
+                if cap >= MAX_ROSTER_CAP:
+                    return "already_maxed"
+                price = ROSTER_UPGRADE_PRICES[cap - BASE_ROSTER_CAP]
+                if int(float(row["coins"])) < price:
+                    return "insufficient_funds"
+                result = await conn.fetchrow(
+                    """
+                    UPDATE discord_tcg.users
+                    SET coins = coins - $1, roster_cap = roster_cap + 1, last_active = NOW()
+                    WHERE discord_id = $2
+                    RETURNING roster_cap, coins
+                    """,
+                    price, str(discord_id),
+                )
+                return "success", int(result["roster_cap"]), int(float(result["coins"]))
 
     async def burn_archived_card(self, card_id: str, owner_id: int) -> bool:
         """Permanently delete an archived card. Returns True on success."""

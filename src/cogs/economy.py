@@ -6,9 +6,66 @@ from discord.ext import commands, tasks
 
 from src import config
 from src.utils.autocomplete import card_autocomplete
-from src.utils.economy_utils import calculate_bank_value, esc, sell_hold_remaining
+from src.utils.economy_utils import (
+    BASE_ROSTER_CAP,
+    MAX_ROSTER_CAP,
+    ROSTER_UPGRADE_PRICES,
+    calculate_bank_value,
+    esc,
+    sell_hold_remaining,
+)
 
 STARTING_BALANCE = 1000
+
+
+class UpgradeConfirmView(discord.ui.View):
+    def __init__(self, bot, discord_id: int, current_cap: int, price: int):
+        super().__init__(timeout=30)
+        self.bot = bot
+        self.discord_id = discord_id
+        self.current_cap = current_cap
+        self.price = price
+        self.message: discord.Message | None = None
+
+    @discord.ui.button(label="Upgrade", style=discord.ButtonStyle.success)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.discord_id:
+            return await interaction.response.send_message("This isn't your upgrade.", ephemeral=True)
+        for item in self.children:
+            item.disabled = True
+        result = await self.bot.db.upgrade_roster_cap(self.discord_id)
+        if result == "not_registered":
+            await interaction.response.edit_message(content="You're not registered.", embed=None, view=self)
+        elif result == "already_maxed":
+            await interaction.response.edit_message(
+                content=f"You're already at max capacity ({MAX_ROSTER_CAP} slots).", embed=None, view=self
+            )
+        elif result == "insufficient_funds":
+            await interaction.response.edit_message(
+                content=f"Insufficient funds. You need ⛃ {self.price:,}.", embed=None, view=self
+            )
+        else:
+            _, new_cap, new_balance = result
+            await interaction.response.edit_message(
+                content=f"Done. Capacity upgraded to **{new_cap} slots**. New balance: ⛃ {new_balance:,}",
+                embed=None,
+                view=self,
+            )
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        for item in self.children:
+            item.disabled = True
+        await interaction.response.edit_message(content="Cancelled.", embed=None, view=self)
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+        if self.message:
+            try:
+                await self.message.edit(content="Timed out.", embed=None, view=self)
+            except discord.HTTPException:
+                pass
 
 
 def next_noon_utc(now: datetime) -> datetime:
@@ -143,6 +200,39 @@ class Economy(commands.Cog):
         await interaction.followup.send(
             f"Sold **{esc(card['current_name'])}** for ⛃ {sale_price:,}.\nNew balance: ⛃ {int(float(new_balance)):,}"
         )
+
+    @app_commands.command(name="upgradeinventory", description="Purchase an additional card slot")
+    async def upgrade_inventory(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
+        roster_info = await self.bot.db.get_user_roster_info(interaction.user.id)
+        if roster_info is None:
+            return await interaction.followup.send("You must run /register first.", ephemeral=True)
+
+        cap = int(roster_info["roster_cap"])
+        if cap >= MAX_ROSTER_CAP:
+            return await interaction.followup.send(
+                f"You're already at max capacity ({MAX_ROSTER_CAP} slots).", ephemeral=True
+            )
+
+        price = ROSTER_UPGRADE_PRICES[cap - BASE_ROSTER_CAP]
+        balance = int(float(roster_info["coins"]))
+        can_afford = balance >= price
+
+        embed = discord.Embed(
+            title="Upgrade Inventory?",
+            description=(
+                f"**Current capacity:** {cap} slots\n"
+                f"**New capacity:** {cap + 1} slots\n\n"
+                f"**Cost:** ⛃ {price:,}\n"
+                f"**Your balance:** ⛃ {balance:,}"
+            ),
+            color=discord.Color.green() if can_afford else discord.Color.red(),
+        )
+
+        view = UpgradeConfirmView(self.bot, interaction.user.id, cap, price)
+        msg = await interaction.followup.send(embed=embed, view=view, ephemeral=True, wait=True)
+        view.message = msg
 
     @app_commands.command(name="bal", description="Check your coin balance")
     async def balance(self, interaction: discord.Interaction):
