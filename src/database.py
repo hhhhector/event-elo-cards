@@ -279,6 +279,26 @@ class Database:
         async with self.pool.acquire() as conn:
             await conn.execute(query, ts)
 
+    async def close_stale_auctions(self) -> int:
+        """
+        Close auctions whose natural end time has passed but that were never
+        finalized, i.e. the bot was killed mid-auction so AuctionView.on_timeout
+        never ran. Left open, user_has_active_bid() reports their bids as live
+        forever, which permanently blocks those users from /buy and /sell.
+
+        Returns the number of auctions closed. Safe to call repeatedly.
+        """
+        query = """
+        UPDATE discord_tcg.auctions
+        SET closed_at = fired_at + make_interval(secs => duration_seconds)
+        WHERE closed_at IS NULL
+          AND fired_at + make_interval(secs => duration_seconds) < NOW()
+        """
+        async with self.pool.acquire() as conn:
+            status = await conn.execute(query)
+        # asyncpg returns "UPDATE <n>"
+        return int(status.split()[-1]) if status.startswith("UPDATE") else 0
+
     async def set_auction_active(self, active: bool) -> None:
         query = "UPDATE discord_tcg.system_state SET is_active = $1 WHERE id = 1"
         async with self.pool.acquire() as conn:

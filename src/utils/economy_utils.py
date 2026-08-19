@@ -52,7 +52,11 @@ YIELD_RATES = {
 
 def calculate_bank_value(rating: float) -> int:
     """
-    Formula: 10000 * (rating / 2200)^4
+    Formula: 10000 * (rating / 2200)^3
+
+    Mirrored in the POWER() expressions in src/database.py
+    (process_faucet_dividends, get_user_combined_wealth) and in
+    ban_player.py. Change one, change all.
     """
     return int(10000 * (rating / 2200) ** 3)
 

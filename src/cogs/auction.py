@@ -531,6 +531,14 @@ class Auction(commands.Cog):
         # Reset stale is_active in case the bot was killed mid-auction.
         # The View is gone so the auction is unrecoverable anyway.
         await self.bot.db.set_auction_active(False)
+        # Same crash also leaves auctions.closed_at NULL forever, which makes
+        # user_has_active_bid() block those bidders from /buy and /sell.
+        try:
+            closed = await self.bot.db.close_stale_auctions()
+            if closed:
+                print(f"🧹 Closed {closed} stale auction(s) from a previous crash.")
+        except Exception as e:
+            print(f"⚠️ Failed to close stale auctions: {e}")
         print("✅ Drop loop started.")
 
     async def _send_drop(self, players, title):
