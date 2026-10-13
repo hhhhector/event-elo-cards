@@ -7,7 +7,9 @@ from discord.ext import commands, tasks
 from src import config
 from src.utils.autocomplete import card_autocomplete
 from src.utils.economy_utils import (
+    UNRATED_NOTE,
     BASE_ROSTER_CAP,
+    card_rating,
     MAX_ROSTER_CAP,
     ROSTER_UPGRADE_PRICES,
     calculate_bank_value,
@@ -168,7 +170,18 @@ class Economy(commands.Cog):
                 ephemeral=True,
             )
 
-        sale_price = calculate_bank_value(float(card["current_drating"]))
+        # Refuse rather than degrade: an unrated player has no bank value, and
+        # selling at a made-up price would hand out or destroy real coins.
+        dr = card_rating(card)
+        if dr is None:
+            return await interaction.followup.send(
+                f"**{esc(card['current_name'])}** is currently {UNRATED_NOTE}. "
+                "That player has no recorded events right now, so the card has no "
+                "bank value and can't be sold yet. Staff can resolve it.",
+                ephemeral=True,
+            )
+
+        sale_price = calculate_bank_value(dr)
         new_balance = await self.bot.db.sell_card_to_bank(
             card_id, interaction.user.id, sale_price
         )
@@ -188,7 +201,7 @@ class Economy(commands.Cog):
             await self.bot.db.log_sale(
                 interaction.user.id,
                 card["player_uuid"],
-                float(card["current_drating"]),
+                dr,
                 rank,
                 sale_price,
                 held_seconds,

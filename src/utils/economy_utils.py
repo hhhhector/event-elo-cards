@@ -21,6 +21,30 @@ def esc(name: str) -> str:
     return name.replace("_", "\\_")
 
 
+# Shown wherever a card can't be priced because its player is unrated.
+UNRATED_NOTE = "unrated · contact staff"
+
+
+def card_rating(row: Any) -> Optional[float]:
+    """
+    A card's player rating, or None when that player is currently unrated.
+
+    A player ends up unrated when they have no rows left in
+    event_elo.event_placements — their events were deleted, or they were merged
+    into another account. fullcalculate.py then nulls their cached stats by
+    design (clear_unplayed_players), so current_drating is NULL.
+
+    The card still exists and must still render; it just has no price until
+    staff remap or refund it. Never call float() on current_drating directly —
+    a NULL there used to crash /inv outright for every holder.
+    """
+    try:
+        raw = row["current_drating"]
+    except (KeyError, IndexError, TypeError):
+        raw = None
+    return None if raw is None else float(raw)
+
+
 def get_rank_bar(combined: float, bar_width: int = 10) -> str:
     combined = int(combined)
     idx = 0

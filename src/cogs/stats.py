@@ -10,7 +10,13 @@ from discord.ext import commands, tasks
 
 from src import config
 from src.utils.autocomplete import player_autocomplete
-from src.utils.economy_utils import esc, get_rarity
+from src.utils.economy_utils import UNRATED_NOTE, card_rating, esc, get_rarity
+from src.utils.visibility import filter_visible
+
+# Leaderboards show LEADERBOARD_SIZE entries, but fetch LEADERBOARD_FETCH so
+# there's headroom after users who left the server are filtered out.
+LEADERBOARD_SIZE = 10
+LEADERBOARD_FETCH = 25
 
 try:
     import plotly.graph_objects as go
@@ -218,11 +224,20 @@ class Stats(commands.Cog):
     def cog_unload(self):
         self.stats_loop.cancel()
 
-    async def _fetch_data(self):
-        coins = await self.bot.db.get_leaderboard_coins()
-        portfolio = await self.bot.db.get_leaderboard_portfolio()
-        combined = await self.bot.db.get_leaderboard_combined()
+    async def _fetch_data(self, guild: discord.Guild | None):
+        # Over-fetch, then drop users who have left the server, then trim to
+        # LEADERBOARD_SIZE — otherwise a top 10 shrinks whenever someone on it
+        # is banned. Economy aggregates are intentionally NOT filtered: a
+        # banned user's coins still exist in the economy.
+        coins = await self.bot.db.get_leaderboard_coins(LEADERBOARD_FETCH)
+        portfolio = await self.bot.db.get_leaderboard_portfolio(LEADERBOARD_FETCH)
+        combined = await self.bot.db.get_leaderboard_combined(LEADERBOARD_FETCH)
         economy = await self.bot.db.get_economy_stats()
+
+        coins = filter_visible(guild, coins, lambda r: r["discord_id"], LEADERBOARD_SIZE)
+        portfolio = filter_visible(guild, portfolio, lambda r: r["discord_id"], LEADERBOARD_SIZE)
+        combined = filter_visible(guild, combined, lambda r: r["discord_id"], LEADERBOARD_SIZE)
+
         return (coins, portfolio, combined), economy
 
     async def _build_chart_bytes(self) -> bytes | None:
@@ -248,7 +263,9 @@ class Stats(commands.Cog):
             return None
 
     async def _update_messages(self):
-        leaderboard_data, economy_stats = await self._fetch_data()
+        stats_channel = self.bot.get_channel(config.STATS_CHANNEL_ID)
+        guild = stats_channel.guild if stats_channel else None
+        leaderboard_data, economy_stats = await self._fetch_data(guild)
         chart_bytes = await self._build_chart_bytes()
 
         now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
@@ -425,12 +442,18 @@ class Stats(commands.Cog):
 
         cards = await self.bot.db.get_cards_by_player_uuid(player_id)
 
+        # Hide holders who have left the server. Counts below are derived from
+        # the filtered list so the embed stays internally consistent rather
+        # than claiming 5 active while listing 3.
+        cards = filter_visible(interaction.guild, cards, lambda c: c["owner_id"])
+
         if not cards:
             return await interaction.followup.send("No cards found.")
 
         first = cards[0]
         player_name = first["current_name"]
-        rating = int(float(first["current_drating"]))
+        dr = card_rating(first)
+        rating = int(dr) if dr is not None else None
         rarity = get_rarity(first["current_rank"])
         color = discord.Color(RARITY_COLOR[rarity])
         emoji = RARITY_EMOJI[rarity]
@@ -441,15 +464,17 @@ class Stats(commands.Cog):
         for c in cards:
             misprint_tag = " [LEFT]" if c["facing_misprint"] else ""
             suffix = " (Archived)" if c["is_archived"] else ""
-            lines.append(f"{emoji} **{esc(player_name)}**{misprint_tag} `{rating}` · <@{int(c['owner_id'])}>{suffix}")
+            rating_str = f"`{rating}`" if rating is not None else UNRATED_NOTE
+            lines.append(f"{emoji} **{esc(player_name)}**{misprint_tag} {rating_str} · <@{int(c['owner_id'])}>{suffix}")
 
         embed = discord.Embed(
             title=f"Existing {player_name} cards",
             description="\n".join(lines),
             color=color,
         )
+        rating_label = f"{rating} rating" if rating is not None else UNRATED_NOTE
         embed.set_footer(
-            text=f"{rating} rating · {active_count} active, {archived_count} archived"
+            text=f"{rating_label} · {active_count} active, {archived_count} archived"
         )
         await interaction.followup.send(embed=embed)
 

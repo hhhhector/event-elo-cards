@@ -9,7 +9,9 @@ from discord.ext import commands
 from src.utils.autocomplete import all_cards_autocomplete, archived_card_autocomplete, card_autocomplete
 from src.utils.card_generator import generate_card_image
 from src.utils.economy_utils import (
+    UNRATED_NOTE,
     calculate_bank_value,
+    card_rating,
     calculate_yield_value,
     esc,
     get_rank_bar,
@@ -98,12 +100,15 @@ def build_archived_embed(archived: list, page: int = 0, per_page: int = 20) -> d
     chunk = archived[page * per_page : (page + 1) * per_page]
     lines = []
     for c in chunk:
-        rating = int(float(c["current_drating"]))
         rarity = get_rarity(c["current_rank"])
         emoji = RARITY_EMOJI[rarity]
-        bv = calculate_bank_value(float(c["current_drating"]))
         misprint_tag = " [LEFT]" if c.get("facing_misprint") else ""
-        lines.append(f"{emoji} **{esc(c['current_name'])}**{misprint_tag} `{rating}` · ⛃ {bv:,}")
+        dr = card_rating(c)
+        if dr is None:
+            lines.append(f"{emoji} **{esc(c['current_name'])}**{misprint_tag} · {UNRATED_NOTE}")
+            continue
+        bv = calculate_bank_value(dr)
+        lines.append(f"{emoji} **{esc(c['current_name'])}**{misprint_tag} `{int(dr)}` · ⛃ {bv:,}")
     page_str = f" — Page {page + 1}/{total_pages}" if total_pages > 1 else ""
     return discord.Embed(
         title=f"Archived ({total}){page_str}",
@@ -218,18 +223,25 @@ class Inventory(commands.Cog):
         total_yield = 0
         portfolio_value = 0
         for c in cards:
-            rating = int(float(c["current_drating"]))
             rarity = get_rarity(c["current_rank"])
             emoji = RARITY_EMOJI[rarity]
-            bv = calculate_bank_value(float(c["current_drating"]))
+            misprint_tag = " [LEFT]" if c.get("facing_misprint") else ""
+            dr = card_rating(c)
+            if dr is None:
+                # Contributes nothing to portfolio or yield, which matches the
+                # dividend SQL — SUM() already skips these rows.
+                active_lines.append(
+                    f"{emoji} **{esc(c['current_name'])}**{misprint_tag} · {UNRATED_NOTE}"
+                )
+                continue
+            bv = calculate_bank_value(dr)
             yield_val = calculate_yield_value(bv, c["current_rank"])
             total_yield += yield_val
             portfolio_value += bv
             hold = sell_hold_remaining(c["acquired_at"])
             hold_str = f" · ⧗ {hold}" if hold else ""
-            misprint_tag = " [LEFT]" if c.get("facing_misprint") else ""
             active_lines.append(
-                f"{emoji} **{esc(c['current_name'])}**{misprint_tag} `{rating}` · ⛃ {bv:,} · ⛃ {yield_val:,}/day{hold_str}"
+                f"{emoji} **{esc(c['current_name'])}**{misprint_tag} `{int(dr)}` · ⛃ {bv:,} · ⛃ {yield_val:,}/day{hold_str}"
             )
 
         combined = balance + portfolio_value
@@ -295,16 +307,26 @@ class Inventory(commands.Cog):
             self.bot.db.get_player_extended_stats(target_card["player_uuid"]),
             self.bot.db.get_player_card_counts(target_card["player_uuid"]),
         )
+        # The satori renderer raises on a missing rating, so bail before it.
+        if card_rating(target_card) is None:
+            return await interaction.followup.send(
+                f"**{esc(target_card['current_name'])}** is currently {UNRATED_NOTE}. "
+                "That player has no recorded events right now, so this card can't "
+                "be priced or rendered.",
+                ephemeral=True,
+            )
+
         image_buffer = await generate_card_image(
             dict(extended_stats) if extended_stats else dict(target_card),
             facing_misprint=bool(target_card.get("facing_misprint")),
         )
         file = discord.File(fp=image_buffer, filename="card.png")
 
-        rating = int(float(target_card["current_drating"]))
+        dr = card_rating(target_card)
+        rating = int(dr)
         rank = extended_stats["current_rank"] if extended_stats else None
         rarity = get_rarity(rank)
-        bv = calculate_bank_value(float(target_card["current_drating"]))
+        bv = calculate_bank_value(dr)
 
         if is_archived:
             status_str = "Archived"
@@ -364,9 +386,12 @@ class Inventory(commands.Cog):
                 "You don't own a card with that ID.", ephemeral=True
             )
 
-        bv = calculate_bank_value(float(card["current_drating"]))
+        # Archiving is still allowed on an unrated card — it has no price, but
+        # retiring it is harmless and reversible only by staff either way.
+        dr = card_rating(card)
+        bv = calculate_bank_value(dr) if dr is not None else 0
         rank = card.get("current_rank")
-        yield_val = calculate_yield_value(bv, rank)
+        yield_val = calculate_yield_value(bv, rank) if dr is not None else 0
         rarity = get_rarity(rank)
         color = discord.Color(RARITY_COLOR[rarity])
         roster_cap = roster_info["roster_cap"]
@@ -421,7 +446,8 @@ class Inventory(commands.Cog):
                 "You don't have an archived card with that ID.", ephemeral=True
             )
 
-        bv = calculate_bank_value(float(card["current_drating"]))
+        dr = card_rating(card)
+        bv = calculate_bank_value(dr) if dr is not None else 0
         rarity = get_rarity(card.get("current_rank"))
         color = discord.Color(RARITY_COLOR[rarity])
 

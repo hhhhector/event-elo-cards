@@ -5,7 +5,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from src.utils.autocomplete import player_autocomplete, wishlist_autocomplete
-from src.utils.economy_utils import esc, get_rarity
+from src.utils.economy_utils import UNRATED_NOTE, card_rating, esc, get_rarity
 
 RARITY_EMOJI = {
     "X": "🟥", "SS": "🟧", "S": "🟨", "A": "🟪", "B": "🟦", "C": "🟩", "D": "⬜",
@@ -32,8 +32,9 @@ class Wishlist(commands.Cog):
         lines = []
         for e in entries:
             emoji = RARITY_EMOJI[get_rarity(e["current_rank"])]
-            rating = int(float(e["current_drating"]))
-            lines.append(f"{emoji} **{esc(e['current_name'])}** `{rating}`")
+            dr = card_rating(e)
+            rating = f"`{int(dr)}`" if dr is not None else UNRATED_NOTE
+            lines.append(f"{emoji} **{esc(e['current_name'])}** {rating}")
 
         embed = discord.Embed(
             title=f"{interaction.user.display_name}'s Wishlist",
