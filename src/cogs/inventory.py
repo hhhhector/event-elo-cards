@@ -310,9 +310,8 @@ class Inventory(commands.Cog):
         # The satori renderer raises on a missing rating, so bail before it.
         if card_rating(target_card) is None:
             return await interaction.followup.send(
-                f"**{esc(target_card['current_name'])}** is currently {UNRATED_NOTE}. "
-                "That player has no recorded events right now, so this card can't "
-                "be priced or rendered.",
+                f"**{esc(target_card['current_name'])}** is currently {UNRATED_NOTE}, "
+                "so this card can't be priced or rendered.",
                 ephemeral=True,
             )
 

@@ -175,9 +175,8 @@ class Economy(commands.Cog):
         dr = card_rating(card)
         if dr is None:
             return await interaction.followup.send(
-                f"**{esc(card['current_name'])}** is currently {UNRATED_NOTE}. "
-                "That player has no recorded events right now, so the card has no "
-                "bank value and can't be sold yet. Staff can resolve it.",
+                f"**{esc(card['current_name'])}** is currently {UNRATED_NOTE}, "
+                "so the card has no bank value and can't be sold.",
                 ephemeral=True,
             )
 

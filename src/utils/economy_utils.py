@@ -22,7 +22,7 @@ def esc(name: str) -> str:
 
 
 # Shown wherever a card can't be priced because its player is unrated.
-UNRATED_NOTE = "unrated · contact staff"
+UNRATED_NOTE = "unrated"
 
 
 def card_rating(row: Any) -> Optional[float]:
